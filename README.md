@@ -1,149 +1,52 @@
-# AI-Based Detection and Classification of Industrial Fires and Persistent Thermal Sources
+# Agninetra FIRMS weak-label pipeline
 
-An AI-enabled geospatial monitoring system for identifying, classifying, and tracking industrial fires and persistent thermal sources using NASA FIRMS, OpenStreetMap (OSM), and satellite imagery.
+Teammate 1 data pipeline for SIH 2026 PS 26162. It fetches NASA FIRMS VIIRS detections, caches OSM/GEM context, joins recurrence and spatial features, and emits the hand-off CSV consumed by training and serving.
 
-## Challenge Context
+## Quick start
 
-Industrial facilities such as oil refineries, petrochemical complexes, thermal power plants, steel industries, mining areas, and LNG terminals produce thermal signatures that can be detected from space. Accidental fires, gas leaks, explosions, and abnormal heat events can also threaten critical infrastructure, public safety, and the environment.
-
-NASA FIRMS provides valuable near-real-time thermal anomaly detections, but a thermal hotspot alone does not explain its cause. The same type of detection may represent an industrial fire, gas flare, agricultural burning, mining activity, or wildfire. This project addresses that gap by combining thermal observations with geographic context, industrial infrastructure data, land-cover information, and satellite imagery.
-
-## Organization
-
-**National Technical Research Organisation (NTRO)**
-
-- [Organization details](https://sih-2026-explorer-pearl.vercel.app/organizations/national-technical-research-organisation-ntro/)
-- [Official SIH portal](https://sih.gov.in/sih2026PS)
-- **Submission deadline:** 20 September 2026
-
-## Objectives
-
-- Detect and monitor thermal anomalies over a selected area of interest.
-- Classify anomalies as industrial fires, persistent industrial heat sources, gas flares, agricultural burns, mining activity, wildfires, or other events.
-- Separate industrial fires from forest fires and other natural fires.
-- Identify persistent thermal sources using repeated observations over time.
-- Correlate hotspots with nearby facilities, roads, settlements, water bodies, and land-cover classes.
-- Present results as an actionable GIS layer over an interactive map.
-
-## Proposed Solution
-
-The system will combine four kinds of evidence:
-
-1. **Thermal anomaly data** from NASA FIRMS, including hotspot location, acquisition time, confidence, and brightness-temperature attributes where available.
-2. **Infrastructure and geographic context** from OSM and other authoritative datasets, including industrial plants, refineries, power stations, mines, airports, roads, and settlements.
-3. **Land-cover and environmental context** to distinguish industrial areas from forests, croplands, grasslands, and urban regions.
-4. **Satellite imagery and temporal history** for visual confirmation, feature extraction, change detection, and persistence analysis.
-
-### High-Level Pipeline
-
-```text
-NASA FIRMS + OSM + Land Cover + Satellite Imagery
-			 |
-		 Data Harmonization
-			 |
-	  Spatial Join + Temporal Aggregation
-			 |
-	     Feature Engineering / Embeddings
-			 |
-	      AI Event Classification Model
-			 |
-       Persistence, Severity, and Confidence Scoring
-			 |
-	     GIS API and Interactive Map Overlay
+```powershell
+python -m pip install -r requirements.txt
+$env:FIRMS_MAP_KEY = "your-free-firms-map-key"
+python firms_client.py --bbox 69.5 21.9 70.5 22.8 --start 2026-01-01 --end 2026-01-31 --output data/raw/jamnagar_viirs.csv
 ```
 
-## Core Features
+The command above merges all three VIIRS satellites (NOAA-20, NOAA-21, SNPP) by default, resolving the correct archive (SP) vs near-real-time (NRT) source per satellite per sub-range from FIRMS' `data_availability` endpoint (NOAA-21 currently has no separate SP source at all). Fetching only one satellite — the old default — undercounts `recurrence_count` by roughly 3x and silently truncates the date range at that one satellite's SP/NRT cutover. Pass `--source VIIRS_NOAA20_NRT` (or similar) to opt back into a single named source for debugging.
 
-### Hotspot ingestion and normalization
+Use `context_sources.fetch_osm_industrial` and `load_gem_facilities` to populate cached GeoJSON files, then run:
 
-- Import FIRMS detections for the selected region and time window.
-- Normalize coordinate reference systems, timestamps, confidence values, and source metadata.
-- Remove duplicates and flag incomplete or low-confidence observations.
+```powershell
+python build_labels.py --firms data/raw/jamnagar_viirs.csv --industrial data/context/osm_industrial.geojson --facilities data/context/gem_facilities.geojson --worldcover data/raw/worldcover/ESA_WorldCover_10m_2021_v200_N21E069_Map.tif --output training/data/labeled_hotspots.csv
+```
 
-### Context-aware classification
+`--worldcover` is optional; omit it and `landcover_class` stays null, which silently disables the `agricultural burning` and `wildfire` rules. Pick the tile(s) covering your bbox from `https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/` (3°x3° tiles named by their SW corner, e.g. `N21E069` for Jamnagar) — verify the URL with a HEAD request before downloading, since a missing tile 404s silently different from a bad key.
 
-For each hotspot, construct a local context using:
+`unknown` is an intentional output and should be excluded from supervised training until reviewed. Validation belongs in spatial-block and temporal holdouts, never random row splits.
 
-- Distance to mapped industrial facilities and infrastructure.
-- Land-cover and vegetation class.
-- Hotspot density and recurrence over time.
-- Brightness temperature, confidence, and observation frequency.
-- Satellite-image features and visible change around the detection.
-- Nearby settlements, roads, water bodies, and protected areas.
+`recurrence_count`, `first_seen`, `last_seen`, and `is_anomalous` are all computed over the full input FIRMS CSV, including whatever date range you pass in. That's correct for labelling, but if that CSV spans your eval period, Teammate 2 must recompute all four from pre-split (training-only) data before using them as model inputs, or they will leak future detections into the label/flag for past rows.
 
-The classifier should return both a predicted category and a confidence score so that uncertain cases can be reviewed by an analyst.
+`daynight` is never used by any labelling rule, deliberately — it's kept as an independent sanity check (real agricultural burning should skew daytime, flares and industrial heat should skew nighttime; that's how this redesign was validated, not how it was built).
 
-### Persistent-source detection
+### Contract column changes since the original handoff schema
 
-Repeated detections at the same location can indicate a flare, furnace, kiln, power-generation source, mining operation, or another persistent thermal source. A temporal aggregation layer will group observations spatially and calculate recurrence, duration, intensity, and recent activity.
+Removed: **`dist_to_facility_m`, `facility_type`** (single globally-nearest GEM facility, any type — replaced because it picked the wrong facility for large multi-point complexes, e.g. a detection inside the Reliance Jamnagar refinery resolving to a neighbouring cement plant's point instead, since GEM represents each facility as one lat/lon regardless of site size).
 
-### GIS visualization and analyst workflow
+Added:
+- `dist_to_flare_capable_m` / `nearest_flare_facility_type` — distance to and type of the nearest facility among `oil_gas_power_plant`, `oil_gas_field`, `lng_terminal`, `chemical_plant` (drives `gas flare`).
+- `dist_to_heat_industry_m` / `nearest_heat_facility_type` — distance to and type of the nearest facility among `cement_plant`, `steel_plant`, `coal_power_plant`, `coal_mine`, `chemical_plant` (drives `industrial`).
+- `is_anomalous` (bool) — see below.
 
-The map interface should support:
+Both distance columns are still point-to-point nearest-neighbour, so the same wrong-facility failure mode can recur for any sprawling site not well-represented by a single GEM point — treat them as "nearest tagged facility of this type," not "distance to the site boundary." 334 of the 365 hotspots inside the Reliance refinery polygon but outside any curated GEM point's 2km radius are a known, currently-unresolved instance of this.
 
-- Thermal hotspot overlays with category-based styling.
-- Facility and infrastructure layers from OSM.
-- Time-range filtering and playback of historical detections.
-- Popups containing source data, classification, confidence, persistence, and last-seen time.
-- Filtering by event type, confidence, severity, and facility proximity.
-- Export of filtered events and map-ready geospatial data.
+**Label value renamed:** `industrial fire` → `industrial` (same column, `label`).
 
-## Expected Deliverables
+### `industrial` class membership (no FRP gate)
 
-1. A working model that classifies industrial fires separately from forest fires and other natural fires.
-2. A persistent thermal-source detection and monitoring workflow.
-3. A GIS-based data store for normalized detections, features, predictions, and event history.
-4. An interactive map that displays model output as overlays on geographic and satellite layers.
-5. An API or service layer for ingesting data and serving event results to the frontend.
-6. Evaluation results covering classification quality, false positives, detection latency, and spatial accuracy.
-7. Documentation covering data sources, model limitations, reproducibility, and responsible use.
+A hotspot is `industrial` if either:
+1. within 2000m of a heat-industry facility, not also within 1000m of a flare-capable facility, with `recurrence_count >= 2`, **or**
+2. `recurrence_count == 1` and either inside an OSM industrial polygon or within 500m of a heat-industry facility.
 
-## Suggested System Architecture
+There is no absolute FRP threshold in this rule — a small, steady heat source (e.g. a cement kiln) and a large furnace are both legitimate industrial signatures, and gating on FRP magnitude structurally excluded the small ones. `gas flare` is untouched and still requires `recurrence_count >= 5` within 1000m of a flare-capable facility; the two rules cannot both fire on the same row, by construction (industrial's path 1 explicitly excludes flare-blocked rows, and path 2's `recurrence_count == 1` can never satisfy gas flare's `>= 5`).
 
-| Layer | Responsibility |
-| --- | --- |
-| Data ingestion | Fetch FIRMS observations and geographic datasets on a schedule or on demand. |
-| Geospatial processing | Reproject, validate, spatially join, and index points and polygons. |
-| Feature store | Keep derived environmental, infrastructure, temporal, and imagery features. |
-| ML inference | Classify events and produce confidence and severity scores. |
-| Persistence engine | Group repeat detections and identify recurring thermal sources. |
-| GIS backend | Store and serve events as GeoJSON or vector tiles through a queryable API. |
-| Web application | Visualize overlays, timelines, filters, imagery, and analyst details. |
+### `is_anomalous`
 
-## Technology Direction
-
-The implementation can be assembled from open geospatial and machine-learning tooling, for example:
-
-- **Data and APIs:** NASA FIRMS, OSM/Overpass, satellite imagery providers, GeoJSON
-- **Geospatial processing:** Python, GeoPandas, Rasterio, GDAL, Shapely
-- **Machine learning:** scikit-learn and/or a deep-learning framework suited to the available labeled imagery
-- **Spatial storage:** PostgreSQL with PostGIS
-- **Backend:** FastAPI or an equivalent geospatial API service
-- **Visualization:** MapLibre GL JS, Leaflet, or another map library with raster and vector overlay support
-
-Technology choices should remain modular so that restricted or rate-limited data sources can be replaced without changing the classification workflow.
-
-## Evaluation Plan
-
-Performance should be measured against a labeled validation set and, where possible, independent incident records:
-
-- Precision, recall, F1-score, and confusion matrix for event classes.
-- False-positive rate near industrial facilities and in natural-fire regions.
-- Spatial distance between predicted events and confirmed source locations.
-- Detection latency from observation availability to classification.
-- Persistence accuracy for recurring thermal sources.
-- Map and API response time for operational use.
-
-## Responsible Use and Limitations
-
-This system is intended for situational awareness and decision support. Satellite revisit time, cloud cover, spatial resolution, incomplete facility inventories, geolocation uncertainty, and mislabeled training data can affect results. Predictions should be treated as confidence-scored indicators and verified against current imagery, ground reports, or authorized operational sources before emergency action.
-
-## Project Status
-
-This repository currently contains the project brief. Implementation details, datasets, model experiments, backend services, and the web GIS application will be added as development progresses.
-
-## References
-
-- [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/)
-- [OpenStreetMap](https://www.openstreetmap.org/)
-- [Download the full SIH 2026 problem statement](https://sih-2026-explorer-pearl.vercel.app/downloads/01_SIH_2026_MASTER_PROBLEM_STATEMENTS.pdf)
+Per ~375m grid cell, per day/night (VIIRS reads FRP differently under solar illumination, so baselines are kept separate): compare a detection's FRP to that same cell's own **prior** history only — never same-day or future detections. Needs at least 5 prior active days at that cell; before that, always `False` (not "normal", just not yet judged). Baseline is the site's daily-max FRP (median + MAD, robust to outliers); flagged when the modified z-score `0.6745 * (frp - median) / MAD > 3.5`, or `frp > 3 * median` when MAD is 0. One-sided — a drop in FRP, or a missing detection, is never flagged.
