@@ -73,4 +73,15 @@ XGB_EARLY_STOPPING_ROUNDS = 20
 # --- backend/api ---------------------------------------------------------------
 API_HOST = "0.0.0.0"
 API_PORT = 8000
-CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]  # placeholder for the Phase 2 frontend
+CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]  # placeholder for a standalone-served frontend
+
+# --- frontend/ (served by main.py as static files -- same-origin, no CORS needed) ---
+FRONTEND_DIR = ROOT_DIR / "frontend"
+DEMO_HOTSPOTS_PATH = ROOT_DIR / "data" / "sample" / "demo_hotspots.csv"
+CLASS_COLORS = {
+    "industrial": "#e6550d",
+    "gas flare": "#fdae6b",
+    "agricultural burning": "#8c6d31",
+    "wildfire": "#d62728",
+    "unknown": "#7f7f7f",
+}

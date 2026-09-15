@@ -44,3 +44,25 @@ class ClassifyResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = "ok"
     model_loaded: bool
+
+
+class HotspotRecord(BaseModel):
+    latitude: float
+    longitude: float
+    acq_date: str
+    label: str
+    label_source: str
+    frp: float | None = None
+    recurrence_count: int | None = None
+    nearest_heat_facility_type: str | None = None
+    nearest_flare_facility_type: str | None = None
+
+
+class HotspotsResponse(BaseModel):
+    hotspots: list[HotspotRecord]
+    source: str  # e.g. "demo" -- data/sample/demo_hotspots.csv, not a real FIRMS pull
+
+
+class ClassesResponse(BaseModel):
+    classes: list[str]
+    colors: dict[str, str]

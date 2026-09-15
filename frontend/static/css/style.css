@@ -1,0 +1,69 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1a1a1a;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+.panel {
+  position: absolute;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  max-width: 220px;
+}
+
+#legend {
+  top: 12px;
+  right: 12px;
+}
+
+#filters {
+  top: 12px;
+  left: 52px;
+}
+
+#status {
+  bottom: 12px;
+  left: 12px;
+}
+
+.panel h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.legend-row, .filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.filter-row {
+  cursor: pointer;
+}
+
+#status.error {
+  color: #b00020;
+}

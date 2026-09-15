@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agninetra Thermal Classifier</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="static/css/style.css" />
+</head>
+<body>
+  <div id="map"></div>
+  <div id="legend" class="panel"><h4>Classes</h4></div>
+  <div id="filters" class="panel"><h4>Filter</h4></div>
+  <div id="status" class="panel">Loading...</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="static/js/api.js"></script>
+  <script src="static/js/legend.js"></script>
+  <script src="static/js/filters.js"></script>
+  <script src="static/js/map.js"></script>
+  <script>
+    async function main() {
+      const statusEl = document.getElementById("status");
+      const map = MapView.initMap();
+
+      const [{ classes, colors }, { hotspots, source }, health] = await Promise.all([
+        Api.fetchClasses(),
+        Api.fetchHotspots(),
+        Api.fetchHealth(),
+      ]);
+
+      Legend.renderLegend(colors);
+      const markersByLabel = MapView.plotHotspots(map, hotspots, colors);
+      Filters.renderFilters(classes, (active) => MapView.applyFilter(map, markersByLabel, active));
+
+      statusEl.textContent =
+        `${hotspots.length} hotspots (source: ${source}) -- ` +
+        `model ${health.model_loaded ? "loaded" : "not trained yet, using rules"}`;
+    }
+
+    main().catch((error) => {
+      const statusEl = document.getElementById("status");
+      statusEl.textContent = "Failed to load: " + error.message;
+      statusEl.classList.add("error");
+      console.error(error);
+    });
+  </script>
+</body>
+</html>

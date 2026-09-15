@@ -1,0 +1,22 @@
+latitude,longitude,acq_date,acq_time,satellite,bright_ti4,bright_ti5,frp,confidence,daynight,dist_to_industrial_m,dist_to_flare_capable_m,nearest_flare_facility_type,dist_to_heat_industry_m,nearest_heat_facility_type,landcover_class,recurrence_count,first_seen,last_seen,is_anomalous,label,label_source
+22.3,69.85,2026-01-10,0130,N,330.0,290.0,6.5,n,D,50,20000,,150,cement_plant,,3,2026-01-10,2026-01-10,False,industrial,rule
+22.5,70.05,2026-01-10,0130,N,330.0,290.0,8.0,n,D,80,25000,,200,cement_plant,,4,2026-01-10,2026-01-10,False,industrial,rule
+22.7,70.25,2026-01-10,0130,N,330.0,290.0,5.5,n,D,40,18000,,100,cement_plant,,2,2026-01-10,2026-01-10,False,industrial,rule
+21.1,72.8,2026-01-10,0130,N,330.0,290.0,9.0,n,D,120,15000,,300,cement_plant,,5,2026-01-10,2026-01-10,False,industrial,rule
+23.05,72.6,2026-01-10,0130,N,330.0,290.0,7.0,n,D,90,22000,,250,cement_plant,,2,2026-01-10,2026-01-10,False,industrial,rule
+22.25,69.7,2026-01-10,0130,N,330.0,290.0,15.0,h,N,200,100,oil_gas_field,25000,,,8,2026-01-10,2026-01-10,False,gas flare,rule
+22.4,69.95,2026-01-10,0130,N,330.0,290.0,12.0,h,N,250,300,oil_gas_field,28000,,,6,2026-01-10,2026-01-10,False,gas flare,rule
+21.6,72.2,2026-01-10,0130,N,330.0,290.0,18.0,h,N,180,200,oil_gas_field,30000,,,10,2026-01-10,2026-01-10,False,gas flare,rule
+22.15,69.6,2026-01-10,0130,N,330.0,290.0,14.0,h,N,220,500,oil_gas_field,26000,,,5,2026-01-10,2026-01-10,False,gas flare,rule
+23.5,71.5,2026-01-10,0130,N,330.0,290.0,3.0,n,D,10000,30000,,25000,,cropland,1,2026-01-10,2026-01-10,False,agricultural burning,rule
+24.0,71.0,2026-01-10,0130,N,330.0,290.0,2.5,n,D,8000,28000,,22000,,cropland,1,2026-01-10,2026-01-10,False,agricultural burning,rule
+23.8,72.9,2026-01-10,0130,N,330.0,290.0,4.0,n,D,9000,26000,,20000,,40,1,2026-01-10,2026-01-10,False,agricultural burning,rule
+24.3,70.5,2026-01-10,0130,N,330.0,290.0,3.5,n,D,12000,29000,,24000,,cropland,1,2026-01-10,2026-01-10,False,agricultural burning,rule
+20.8,73.2,2026-01-10,0130,N,330.0,290.0,20.0,n,D,15000,24000,,18000,,forest,1,2026-01-10,2026-01-10,False,wildfire,rule
+20.5,73.5,2026-01-10,0130,N,330.0,290.0,25.0,n,D,20000,25000,,19000,,10,1,2026-01-10,2026-01-10,False,wildfire,rule
+21.9,73.9,2026-01-10,0130,N,330.0,290.0,18.0,n,D,11000,23000,,17000,,forest,1,2026-01-10,2026-01-10,False,wildfire,rule
+20.2,73.1,2026-01-10,0130,N,330.0,290.0,22.0,n,D,13000,22000,,16000,,woodland,1,2026-01-10,2026-01-10,False,wildfire,rule
+21.95,70.1,2026-01-10,0130,N,330.0,290.0,12.0,n,N,5000,60000,,50000,,,1,2026-01-10,2026-01-10,False,unknown,unknown
+22.8,71.2,2026-01-10,0130,N,330.0,290.0,6.0,n,D,4000,15000,,9000,,,1,2026-01-10,2026-01-10,False,unknown,unknown
+23.2,69.3,2026-01-10,0130,N,330.0,290.0,5.0,n,D,3000,12000,,7000,,,1,2026-01-10,2026-01-10,False,unknown,unknown
+21.5,71.8,2026-01-10,0130,N,330.0,290.0,4.0,n,D,2500,10000,,6000,,,1,2026-01-10,2026-01-10,False,unknown,unknown
