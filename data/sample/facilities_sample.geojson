@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "facility_type": "cement_plant" },
+      "geometry": { "type": "Point", "coordinates": [69.851, 22.301] }
+    }
+  ]
+}

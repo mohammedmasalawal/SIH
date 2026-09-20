@@ -1,0 +1,5 @@
+latitude,longitude,acq_date,acq_time,satellite,bright_ti4,bright_ti5,frp,confidence,daynight
+22.30,69.85,2026-01-01,130,N,330,290,5.0,n,D
+22.30,69.85,2026-01-02,131,N,330,290,6.0,n,D
+22.30,69.85,2026-01-03,132,N,330,290,7.0,n,D
+21.95,70.10,2026-01-05,200,N,320,280,12.0,n,N

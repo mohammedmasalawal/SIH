@@ -4,6 +4,19 @@ from __future__ import annotations
 
 import pandas as pd
 
+from backend.config import (
+    CROPLAND_LANDCOVER_TERMS,
+    GAS_FLARE_MAX_DIST_M,
+    GAS_FLARE_MIN_RECURRENCE,
+    GAS_FLARE_REFINERY_MIN_RECURRENCE,
+    INDUSTRIAL_HEAT_MAX_DIST_M,
+    INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M,
+    INDUSTRIAL_MIN_RECURRENCE,
+    INDUSTRIAL_POLYGON_TOLERANCE_M,
+    NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M,
+    NATURAL_LANDCOVER_TERMS,
+)
+
 CLASSES = ("industrial", "gas flare", "agricultural burning", "wildfire", "unknown")
 
 
@@ -40,8 +53,8 @@ def _osm_industrial_tag(row: pd.Series) -> str:
 def is_gas_flare(row: pd.Series) -> bool:
     recurrence = _number(row, "recurrence_count") or 0
     distance = _number(row, "dist_to_flare_capable_m")
-    distance_rule = distance is not None and distance <= 1_000 and recurrence >= 5
-    refinery_rule = recurrence >= 2 and _osm_industrial_tag(row) == "refinery"
+    distance_rule = distance is not None and distance <= GAS_FLARE_MAX_DIST_M and recurrence >= GAS_FLARE_MIN_RECURRENCE
+    refinery_rule = recurrence >= GAS_FLARE_REFINERY_MIN_RECURRENCE and _osm_industrial_tag(row) == "refinery"
     return distance_rule or refinery_rule
 
 
@@ -58,10 +71,10 @@ def is_industrial(row: pd.Series) -> bool:
     flare_distance = _number(row, "dist_to_flare_capable_m")
     industrial_distance = _number(row, "dist_to_industrial_m")
     recurrence = _number(row, "recurrence_count") or 0
-    near_heat_industry = heat_distance is not None and heat_distance <= 2_000
-    near_flare_candidate = flare_distance is not None and flare_distance <= 1_000
-    inside_osm_industrial = industrial_distance is not None and industrial_distance <= 1
-    near_heat_facility_500m = heat_distance is not None and heat_distance <= 500
+    near_heat_industry = heat_distance is not None and heat_distance <= INDUSTRIAL_HEAT_MAX_DIST_M
+    near_flare_candidate = flare_distance is not None and flare_distance <= GAS_FLARE_MAX_DIST_M
+    inside_osm_industrial = industrial_distance is not None and industrial_distance <= INDUSTRIAL_POLYGON_TOLERANCE_M
+    near_heat_facility_500m = heat_distance is not None and heat_distance <= INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M
 
     # Paths 1 and 2 predate is_gas_flare's OSM-refinery branch and are deliberately
     # left unguarded against it (unlike path 3 just below). A GEM-distance hotspot
@@ -72,13 +85,13 @@ def is_industrial(row: pd.Series) -> bool:
     # adding `and not is_gas_flare(row)` here: these rows are genuinely ambiguous
     # (general refinery heat vs. an actual flare) and are meant to fall through to
     # manual/gold-set review, not be guessed at.
-    if near_heat_industry and not near_flare_candidate and recurrence >= 2:
+    if near_heat_industry and not near_flare_candidate and recurrence >= INDUSTRIAL_MIN_RECURRENCE:
         return True
     if recurrence == 1 and (inside_osm_industrial or near_heat_facility_500m):
         return True
     osm_tag = _osm_industrial_tag(row)
     inside_other_industrial_polygon = bool(osm_tag) and osm_tag != "refinery"
-    if recurrence >= 2 and inside_other_industrial_polygon and not is_gas_flare(row):
+    if recurrence >= INDUSTRIAL_MIN_RECURRENCE and inside_other_industrial_polygon and not is_gas_flare(row):
         return True
     return False
 
@@ -86,13 +99,17 @@ def is_industrial(row: pd.Series) -> bool:
 def is_agricultural_burning(row: pd.Series) -> bool:
     landcover = str(row.get("landcover_class", "")).lower()
     distance = _number(row, "dist_to_industrial_m")
-    return any(term in landcover for term in ("cropland", "crop", "agriculture", "40")) and (distance is None or distance > 2_000)
+    return any(term in landcover for term in CROPLAND_LANDCOVER_TERMS) and (
+        distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M
+    )
 
 
 def is_wildfire(row: pd.Series) -> bool:
     landcover = str(row.get("landcover_class", "")).lower()
     distance = _number(row, "dist_to_industrial_m")
-    return any(term in landcover for term in ("forest", "shrub", "grass", "woodland", "10", "20", "30")) and (distance is None or distance > 2_000)
+    return any(term in landcover for term in NATURAL_LANDCOVER_TERMS) and (
+        distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M
+    )
 
 
 def _matched_labels(row: pd.Series) -> list[str]:

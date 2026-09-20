@@ -1,8 +1,13 @@
-"""Join FIRMS detections to context and create the teammate-2 hand-off CSV."""
+"""Feature engineering for FIRMS hotspots: recurrence, anomaly, and spatial-context joins.
+
+These functions compute the per-detection features documented in the README
+("Contract column changes" / "recurrence_count, first_seen, last_seen, and
+is_anomalous" / "industrial class membership") that build_labels.py joins onto
+the raw FIRMS CSV before rules.apply_rules assigns a label.
+"""
 
 from __future__ import annotations
 
-import argparse
 from collections import Counter
 from pathlib import Path
 
@@ -13,28 +18,27 @@ import rasterio
 from rasterio.mask import mask as rasterio_mask
 from shapely.geometry import mapping
 
-from rules import FLARE_CAPABLE_FACILITY_TYPES, HEAT_INDUSTRY_FACILITY_TYPES, apply_rules
-
-CONTRACT_COLUMNS = [
-    "latitude", "longitude", "acq_date", "acq_time", "satellite", "bright_ti4", "bright_ti5", "frp",
-    "confidence", "daynight", "dist_to_industrial_m",
-    "dist_to_flare_capable_m", "nearest_flare_facility_type",
-    "dist_to_heat_industry_m", "nearest_heat_facility_type",
-    "landcover_class", "recurrence_count", "first_seen", "last_seen",
-    "is_anomalous", "label", "label_source",
-]
-
-GRID_SIZE = 0.0034  # roughly 375 m at this latitude
+from backend.config import ANOMALY_Z_THRESHOLD, GRID_SIZE, MIN_PRIOR_ACTIVE_DAYS
 
 
-def _grid_keys(frame: pd.DataFrame, grid_size: float = GRID_SIZE) -> tuple[pd.Series, pd.Series]:
+def grid_keys(frame: pd.DataFrame, grid_size: float = GRID_SIZE) -> tuple[pd.Series, pd.Series]:
+    """Snap each detection's lat/lon onto a roughly 375 m grid for site-level grouping.
+
+    Used instead of exact-coordinate grouping since VIIRS re-detections of the same
+    physical site rarely land on identical lat/lon.
+    """
     grid_lat = (frame["latitude"] / grid_size).round().astype("int64")
     grid_lon = (frame["longitude"] / grid_size).round().astype("int64")
     return grid_lat, grid_lon
 
 
-def _recurrence(frame: pd.DataFrame, grid_lat: pd.Series, grid_lon: pd.Series) -> pd.DataFrame:
-    """Count distinct active days in a roughly 375 m lat/lon grid, avoiding exact-coordinate grouping."""
+def add_recurrence_features(frame: pd.DataFrame, grid_lat: pd.Series, grid_lon: pd.Series) -> pd.DataFrame:
+    """Add recurrence_count, first_seen, last_seen: distinct active days per grid cell.
+
+    Computed over the full input frame, including whatever date range it covers --
+    correct for labelling, but callers who need pre-split (training-only) values
+    must recompute these from a pre-split frame first (see README).
+    """
     result = frame.copy()
     result["_grid_lat"] = grid_lat
     result["_grid_lon"] = grid_lon
@@ -45,13 +49,13 @@ def _recurrence(frame: pd.DataFrame, grid_lat: pd.Series, grid_lon: pd.Series) -
     return result.drop(columns=keys)
 
 
-def _is_anomalous(
+def compute_is_anomalous(
     frame: pd.DataFrame,
     grid_lat: pd.Series,
     grid_lon: pd.Series,
     *,
-    min_prior_active_days: int = 5,
-    z_threshold: float = 3.5,
+    min_prior_active_days: int = MIN_PRIOR_ACTIVE_DAYS,
+    z_threshold: float = ANOMALY_Z_THRESHOLD,
 ) -> pd.Series:
     """Flag detections whose FRP is a robust outlier against that same site's own prior history.
 
@@ -93,10 +97,37 @@ def _is_anomalous(
     return flags
 
 
-def _nearest_facility(
+def osm_industrial_tag(detections: gpd.GeoDataFrame, industrial: gpd.GeoDataFrame) -> pd.Series:
+    """The OSM `industrial=*` tag of the polygon each detection falls inside, lowercased.
+
+    Plain `landuse=industrial` polygons (no `industrial` subtype tag) fall back to
+    "yes" -- present but not the refinery subtype, which is all the label rules need.
+    When a point falls inside overlapping polygons, a refinery match wins the tie.
+    """
+    polygons = industrial[industrial.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
+    result = pd.Series(None, index=detections.index, dtype="object")
+    if polygons.empty:
+        return result
+    polygons["_tag"] = (
+        polygons["industrial"].fillna("yes").astype(str).str.lower() if "industrial" in polygons.columns else "yes"
+    )
+    joined = gpd.sjoin(detections[["geometry"]], polygons[["geometry", "_tag"]], predicate="within", how="inner")
+    joined = joined.sort_values("_tag", key=lambda tags: tags != "refinery")
+    joined = joined[~joined.index.duplicated(keep="first")]
+    result.loc[joined.index] = joined["_tag"]
+    return result
+
+
+def nearest_facility_distance(
     detections: gpd.GeoDataFrame, facilities: gpd.GeoDataFrame, facility_types: tuple[str, ...]
 ) -> tuple[pd.Series, pd.Series]:
-    """Distance and facility_type of the nearest facility among the given types, per detection."""
+    """Distance (m) and facility_type of the nearest facility among the given types, per detection.
+
+    Point-to-point nearest-neighbour against GEM's single lat/lon per facility, so
+    it can pick the wrong point for a large multi-site complex (see README) --
+    treat the result as "nearest tagged facility of this type," not "distance to
+    the site boundary."
+    """
     subset = facilities[facilities["facility_type"].isin(facility_types)]
     if subset.empty:
         empty = pd.Series(None, index=detections.index)
@@ -107,8 +138,13 @@ def _nearest_facility(
     return nearest["_dist"].reindex(detections.index), nearest["facility_type"].reindex(detections.index)
 
 
-def _landcover_majority(points_3857: gpd.GeoSeries, raster_path: str | Path, buffer_m: float = 375) -> pd.Series:
-    """Majority ESA WorldCover class code within buffer_m metres of each point."""
+def landcover_majority(points_3857: gpd.GeoSeries, raster_path: str | Path, buffer_m: float = 375) -> pd.Series:
+    """Majority ESA WorldCover class code within buffer_m metres of each point.
+
+    Left null (never fabricated) when the raster has no data at a point -- callers
+    who omit --worldcover entirely get the same null, which silently disables the
+    agricultural burning and wildfire rules per the README.
+    """
     with rasterio.open(raster_path) as raster:
         nodata = raster.nodata
         buffered = gpd.GeoSeries(points_3857.buffer(buffer_m), crs="EPSG:3857").to_crs(raster.crs)
@@ -128,68 +164,3 @@ def _landcover_majority(points_3857: gpd.GeoSeries, raster_path: str | Path, buf
                 continue
             classes.append(str(Counter(values.tolist()).most_common(1)[0][0]))
     return pd.Series(classes, index=points_3857.index)
-
-
-def build_labels(
-    firms_csv: str | Path,
-    industrial_geojson: str | Path,
-    facilities_geojson: str | Path,
-    output_csv: str | Path,
-    *,
-    worldcover_raster: str | Path | None = None,
-) -> pd.DataFrame:
-    firms = pd.read_csv(firms_csv)
-    industrial = gpd.read_file(industrial_geojson).to_crs("EPSG:3857")
-    facilities = gpd.read_file(facilities_geojson).to_crs("EPSG:3857")
-    detections = gpd.GeoDataFrame(
-        firms,
-        geometry=gpd.points_from_xy(firms["longitude"], firms["latitude"]),
-        crs="EPSG:4326",
-    ).to_crs("EPSG:3857")
-
-    industrial_union = industrial.geometry.union_all() if not industrial.empty else None
-    result = firms.copy()
-    result["dist_to_industrial_m"] = (
-        detections.geometry.distance(industrial_union).values if industrial_union is not None else None
-    )
-    flare_dist, flare_type = _nearest_facility(detections, facilities, FLARE_CAPABLE_FACILITY_TYPES)
-    heat_dist, heat_type = _nearest_facility(detections, facilities, HEAT_INDUSTRY_FACILITY_TYPES)
-    result["dist_to_flare_capable_m"] = flare_dist.values
-    result["nearest_flare_facility_type"] = flare_type.values
-    result["dist_to_heat_industry_m"] = heat_dist.values
-    result["nearest_heat_facility_type"] = heat_type.values
-
-    grid_lat, grid_lon = _grid_keys(result)
-    result = _recurrence(result, grid_lat, grid_lon)
-    result["is_anomalous"] = _is_anomalous(result, grid_lat, grid_lon).values
-
-    if worldcover_raster is not None:
-        result["landcover_class"] = _landcover_majority(detections.geometry, worldcover_raster).values
-    else:
-        result["landcover_class"] = result.get("landcover_class", pd.Series(index=result.index, dtype="object"))
-
-    result["label"] = "unknown"
-    result["label_source"] = "unclassified"
-    result = apply_rules(result)
-    for column in CONTRACT_COLUMNS:
-        if column not in result:
-            result[column] = None
-    output_path = Path(output_csv)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result[CONTRACT_COLUMNS].to_csv(output_path, index=False)
-    return result[CONTRACT_COLUMNS]
-
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--firms", type=Path, required=True)
-    parser.add_argument("--industrial", type=Path, required=True)
-    parser.add_argument("--facilities", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--worldcover", type=Path, default=None, help="ESA WorldCover GeoTIFF tile")
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = _parse_args()
-    build_labels(args.firms, args.industrial, args.facilities, args.output, worldcover_raster=args.worldcover)

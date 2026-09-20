@@ -1,5 +1,5 @@
 sample_id,latitude,longitude,acq_date,acq_time,acq_time_ist,maps_link,verified_label,structure_seen,confidence
-G001,22.31713,69.89003,2026-01-26,2143,03:13,"https://www.google.com/maps?q=22.31713,69.89003&t=k",,,
+G001,22.31713,69.89003,2026-01-26,2143,03:13,"https://www.google.com/maps?q=22.31713,69.89003&t=k",uncertain,perimeter zone off Sir PN Rd; coke yard W C2 warehouse/paved yard N black stockpile S fields E; no flare stack visible,Low
 G002,22.36714,70.25137,2026-01-09,904,14:34,"https://www.google.com/maps?q=22.36714,70.25137&t=k",,,
 G003,22.31444,69.85438,2025-11-22,752,13:22,"https://www.google.com/maps?q=22.31444,69.85438&t=k",,,
 G004,22.34372,69.88132,2026-02-07,850,14:20,"https://www.google.com/maps?q=22.34372,69.88132&t=k",,,
