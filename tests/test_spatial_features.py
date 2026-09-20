@@ -10,6 +10,7 @@ from training.spatial_features import (
     compute_is_anomalous,
     grid_keys,
     nearest_facility_distance,
+    nearest_industrial_distance,
 )
 
 
@@ -65,3 +66,52 @@ def test_nearest_facility_distance_picks_nearer_candidate():
     dist, facility_type = nearest_facility_distance(detections, facilities, ("cement_plant",))
     assert dist.iloc[0] == pytest.approx(100.0)
     assert facility_type.iloc[0] == "cement_plant"
+
+
+def test_nearest_industrial_distance_picks_nearer_polygon():
+    from shapely.geometry import box
+
+    detections = gpd.GeoDataFrame({"geometry": [Point(0, 0)]}, crs="EPSG:3857")
+    industrial = gpd.GeoDataFrame(
+        {"geometry": [box(100, -10, 120, 10), box(500, -10, 520, 10)]}, crs="EPSG:3857"
+    )
+    dist = nearest_industrial_distance(detections, industrial)
+    assert dist.iloc[0] == pytest.approx(100.0)  # distance to the near polygon's edge, not the far one
+
+
+def test_nearest_industrial_distance_is_zero_for_a_point_inside_a_polygon():
+    from shapely.geometry import box
+
+    detections = gpd.GeoDataFrame({"geometry": [Point(5, 5)]}, crs="EPSG:3857")
+    industrial = gpd.GeoDataFrame({"geometry": [box(0, 0, 10, 10)]}, crs="EPSG:3857")
+    dist = nearest_industrial_distance(detections, industrial)
+    assert dist.iloc[0] == pytest.approx(0.0)
+
+
+def test_nearest_industrial_distance_matches_union_all_distance():
+    """Regression guard: sjoin_nearest against individual polygons (the current,
+    spatial-indexed implementation) must give the same numbers the old
+    detections.geometry.distance(industrial.union_all()) approach gave -- only the
+    performance should have changed, not the values every rule threshold reads."""
+    from shapely.geometry import box
+
+    rng_points = [Point(x, y) for x, y in [(0, 0), (300, 0), (1000, 1000), (-50, 200)]]
+    detections = gpd.GeoDataFrame({"geometry": rng_points}, crs="EPSG:3857")
+    industrial = gpd.GeoDataFrame(
+        {"geometry": [box(100, -10, 120, 10), box(-60, 190, -40, 210), box(2000, 2000, 2010, 2010)]},
+        crs="EPSG:3857",
+    )
+
+    indexed = nearest_industrial_distance(detections, industrial)
+    union_geom = industrial.geometry.union_all()
+    unindexed = detections.geometry.distance(union_geom)
+
+    for a, b in zip(indexed.tolist(), unindexed.tolist()):
+        assert a == pytest.approx(b)
+
+
+def test_nearest_industrial_distance_empty_industrial_returns_all_null():
+    detections = gpd.GeoDataFrame({"geometry": [Point(0, 0)]}, crs="EPSG:3857")
+    industrial = gpd.GeoDataFrame({"geometry": []}, crs="EPSG:3857")
+    dist = nearest_industrial_distance(detections, industrial)
+    assert dist.isna().all()

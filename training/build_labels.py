@@ -16,6 +16,7 @@ from training.spatial_features import (
     grid_keys,
     landcover_majority,
     nearest_facility_distance,
+    nearest_industrial_distance,
     osm_industrial_tag,
 )
 from training.worldcover_index import WorldCoverTileIndex
@@ -61,11 +62,8 @@ def build_labels(
         crs="EPSG:4326",
     ).to_crs(NATIONAL_PROJECTED_CRS)
 
-    industrial_union = industrial.geometry.union_all() if not industrial.empty else None
     result = firms.copy()
-    result["dist_to_industrial_m"] = (
-        detections.geometry.distance(industrial_union).values if industrial_union is not None else None
-    )
+    result["dist_to_industrial_m"] = nearest_industrial_distance(detections, industrial).values
     result["osm_industrial_tag"] = osm_industrial_tag(detections, industrial).values
     flare_dist, flare_type = nearest_facility_distance(detections, facilities, FLARE_CAPABLE_FACILITY_TYPES)
     heat_dist, heat_type = nearest_facility_distance(detections, facilities, HEAT_INDUSTRY_FACILITY_TYPES)
