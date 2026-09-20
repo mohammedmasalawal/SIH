@@ -18,6 +18,7 @@ from training.spatial_features import (
     nearest_facility_distance,
     osm_industrial_tag,
 )
+from training.worldcover_index import WorldCoverTileIndex
 
 
 def _read_vector(path: str | Path) -> gpd.GeoDataFrame:
@@ -38,7 +39,10 @@ def build_labels(
     """firms_csv may be .csv or .parquet. industrial_geojson/facilities_geojson may be
     .geojson (regional caches, gpd.read_file) or .parquet (national-scale caches, e.g.
     backend.ingestion.context_sources.extract_osm_industrial_context's output,
-    gpd.read_parquet) -- picked by extension either way.
+    gpd.read_parquet) -- picked by extension either way. worldcover_raster may be a
+    single-tile GeoTIFF path (regional) or a directory of tiles (national -- opened
+    as a WorldCoverTileIndex, so only the tiles actually covering these detections
+    are ever read, never a raster loaded whole for a handful of lookups).
 
     Distances are computed in NATIONAL_PROJECTED_CRS (EPSG:7755, an India-wide
     Lambert conformal conic) rather than EPSG:3857/Web Mercator -- Web Mercator's
@@ -74,7 +78,13 @@ def build_labels(
     result = add_recurrence_features(result, grid_lat, grid_lon)
     result["is_anomalous"] = compute_is_anomalous(result, grid_lat, grid_lon).values
 
-    if worldcover_raster is not None:
+    if worldcover_raster is not None and Path(worldcover_raster).is_dir():
+        tile_index = WorldCoverTileIndex(worldcover_raster)
+        result["landcover_class"] = [
+            tile_index.majority_class_in_buffer(lon, lat)
+            for lon, lat in zip(firms["longitude"], firms["latitude"])
+        ]
+    elif worldcover_raster is not None:
         result["landcover_class"] = landcover_majority(detections.geometry, worldcover_raster).values
     else:
         result["landcover_class"] = result.get("landcover_class", pd.Series(index=result.index, dtype="object"))
@@ -98,7 +108,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--industrial", type=Path, required=True)
     parser.add_argument("--facilities", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--worldcover", type=Path, default=None, help="ESA WorldCover GeoTIFF tile")
+    parser.add_argument("--worldcover", type=Path, default=None, help="ESA WorldCover GeoTIFF tile, or a directory of tiles")
     return parser.parse_args()
 
 
