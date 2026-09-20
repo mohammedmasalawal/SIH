@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from training.spatial_features import grid_keys
-from training.train_model import select_device, spatial_block_split, train
+from training.train_model import detection_level_temporal_split, select_device, spatial_block_split, train
 
 
 def _compute_cell_ids(frame: pd.DataFrame) -> pd.Series:
@@ -35,6 +35,46 @@ def test_spatial_block_split_respects_test_fraction_in_cell_terms(synthetic_labe
     train_idx, test_idx = spatial_block_split(frame, test_fraction=0.25)
     n_test_cells = cell_id.loc[test_idx].nunique()
     assert n_test_cells == max(1, round(n_cells * 0.25))
+
+
+def test_detection_level_temporal_split_is_deterministic(synthetic_labeled_frame):
+    frame = synthetic_labeled_frame[synthetic_labeled_frame["label"] != "unknown"].reset_index(drop=True)
+    first = detection_level_temporal_split(frame)
+    second = detection_level_temporal_split(frame)
+    assert list(first[0]) == list(second[0])
+    assert list(first[1]) == list(second[1])
+    assert first[2] == second[2]
+
+
+def test_detection_level_temporal_split_respects_test_fraction_in_row_terms(synthetic_labeled_frame):
+    frame = synthetic_labeled_frame[synthetic_labeled_frame["label"] != "unknown"].reset_index(drop=True)
+    train_idx, test_idx, _ = detection_level_temporal_split(frame, test_fraction=0.25)
+    assert len(test_idx) == max(1, round(len(frame) * 0.25))
+    assert len(train_idx) + len(test_idx) == len(frame)
+
+
+def test_detection_level_temporal_split_test_rows_are_all_on_or_after_cutoff(synthetic_labeled_frame):
+    """Unlike spatial_block_split, a single grid cell's rows CAN straddle train/test
+    here -- what must hold is that every test row's own date is >= cutoff."""
+    frame = synthetic_labeled_frame[synthetic_labeled_frame["label"] != "unknown"].reset_index(drop=True)
+    train_idx, test_idx, cutoff_date = detection_level_temporal_split(frame)
+    assert (frame.loc[test_idx, "acq_date"] >= cutoff_date).all()
+    assert (frame.loc[train_idx, "acq_date"] < cutoff_date).all()
+
+
+def test_detection_level_split_gives_minority_classes_far_more_test_rows_than_spatial_block(synthetic_labeled_frame):
+    """The whole reason detection-level exists: spatial_block_split orders whole
+    cells by first-seen date, so a class dominated by a handful of long-lived sites
+    (started early, kept recurring) contributes almost none of its rows to test no
+    matter test_fraction. Splitting by each detection's own date instead guarantees
+    a proportional share of every class's rows lands in test."""
+    frame = synthetic_labeled_frame[synthetic_labeled_frame["label"] != "unknown"].reset_index(drop=True)
+    _, spatial_test_idx = spatial_block_split(frame, test_fraction=0.3)
+    _, detection_test_idx, _ = detection_level_temporal_split(frame, test_fraction=0.3)
+
+    spatial_gas_flare_test = (frame.loc[spatial_test_idx, "label"] == "gas flare").sum()
+    detection_gas_flare_test = (frame.loc[detection_test_idx, "label"] == "gas flare").sum()
+    assert detection_gas_flare_test > spatial_gas_flare_test
 
 
 def test_select_device_falls_back_to_cpu_when_cuda_probe_fails():

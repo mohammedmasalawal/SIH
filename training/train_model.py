@@ -5,16 +5,31 @@ excludes every gold-verification cell (see _load_gold_cell_ids) -- a gold cell i
 a training block would let manually-verified ground truth leak into the model's own
 training signal, defeating the point of holding it out for blind review.
 
-Splits by whole ~375m grid cell, never by row (a random row split would let
-recurrence_count/is_anomalous, which are computed per-site, leak the answer), AND
-orders cells by each cell's first-seen date so test is drawn from later activity
-than train (see spatial_block_split) -- a temporal holdout, not a random sample of
-cells, so the eval score reflects generalizing forward in time, not just to new sites
-active in the same period as training.
+Two split strategies are available (see SPLIT_STRATEGIES):
+
+- "detection" (the default train() uses): every detection dated on/after a
+  row-count-based cutoff goes to test, regardless of which grid cell it's in.
+  Persistent sites straddle train/test.
+- "spatial_block": whole ~375m grid cells go to one side only (no physical site
+  straddles train/test), ordered by each cell's first-seen date so test is drawn
+  from later activity than train.
+
+spatial_block_split was the original design -- it guarantees no site's rows are
+ever split across train/test, which is the cleaner leakage story in principle.
+In practice, on this dataset it pushed gas flare and industrial down to 1 and 17
+test rows respectively (out of ~570 and ~384 total): both classes are dominated by
+a handful of long-lived sites that were first detected early in the pull and kept
+recurring for months, so ordering *cells* by first-seen date puts nearly all of
+their rows on the train side no matter the target test_fraction. detection_level_
+temporal_split fixes the per-class test-set size by cutting on detection date
+directly (28 and 27 test rows for gas flare/industrial on the same data) at the
+cost of letting a single site's earlier detections train the model that is then
+evaluated on that same site's later ones. Both are computed and reported by
+training/evaluate.py --split=both; nothing here silently prefers one.
 
 recurrence_count/first_seen/last_seen/is_anomalous, as loaded from the labeled CSV,
 were computed by training/build_labels.py over its entire input FIRMS pull --
-including whatever is on the test side of this split. Before either split's rows
+including whatever is on the test side of either split. Before either split's rows
 reach the feature matrix, recompute_pre_split_features recomputes all four using
 only detections dated before the split's cutoff date, so no model input (train or
 test) can reflect information from on or after the train/test boundary.
@@ -114,6 +129,41 @@ def spatial_block_split(
     return train_idx, test_idx
 
 
+def detection_level_temporal_split(
+    frame: pd.DataFrame,
+    test_fraction: float = SPATIAL_SPLIT_TEST_FRACTION,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """Split frame.index into (train, test) by detection date alone: every row dated
+    on/after the cutoff goes to test, regardless of which grid cell it belongs to.
+
+    Unlike spatial_block_split, a persistent site's rows can straddle train/test here
+    -- that's the deliberate trade this makes. spatial_block_split's per-cell
+    first-seen ordering means a site active across most of the pull's date range
+    (the norm for gas flare/industrial: a handful of facilities recurring for
+    months) contributes almost none of its rows to test no matter test_fraction,
+    because the *cell* "started" early even though it kept detecting long after the
+    cutoff. Cutting on each detection's own date instead guarantees test_fraction of
+    *rows* -- and therefore a proportional share of every class's rows -- ends up in
+    test, at the cost of letting some sites' earlier detections train the model that
+    is then evaluated on their own later ones.
+
+    cutoff_date is chosen so that the last test_fraction of rows by acq_date (ties
+    included) fall on/after it. Returns (train_idx, test_idx, cutoff_date).
+    """
+    dates_sorted = np.sort(frame["acq_date"].to_numpy())
+    n_test = max(1, round(len(dates_sorted) * test_fraction)) if len(dates_sorted) > 1 else 0
+    cutoff_date = dates_sorted[len(dates_sorted) - n_test] if n_test else None
+    if cutoff_date is None:
+        return frame.index.to_numpy(), np.array([], dtype=frame.index.dtype), str(dates_sorted[-1])
+    is_test = frame["acq_date"] >= cutoff_date
+    test_idx = frame.index[is_test].to_numpy()
+    train_idx = frame.index[~is_test].to_numpy()
+    return train_idx, test_idx, str(cutoff_date)
+
+
+SPLIT_STRATEGIES = ("detection", "spatial_block")
+
+
 def recompute_pre_split_features(frame: pd.DataFrame, cutoff_date: str) -> pd.DataFrame:
     """Overwrite recurrence_count/first_seen/last_seen/is_anomalous using only
     detections dated strictly before cutoff_date as the grouping/history universe.
@@ -152,35 +202,57 @@ def recompute_pre_split_features(frame: pd.DataFrame, cutoff_date: str) -> pd.Da
     return result
 
 
-def prepare_training_frame(
-    labeled_csv: str | Path,
-    gold_csv: str | Path = GOLD_SAMPLE_PATH,
-    test_fraction: float = SPATIAL_SPLIT_TEST_FRACTION,
-    seed: int = RANDOM_SEED,
-) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, str]:
-    """Load labeled_csv, exclude unknown/gold rows, split, and recompute pre-split-safe
-    features. Shared by train() and evaluate() so both operate on identically-prepared
-    data -- evaluate() calling this with the model's own recorded seed is what makes
-    its reproduced test set match the one the model was actually evaluated against.
+def _load_and_filter_frame(labeled_csv: str | Path, gold_csv: str | Path) -> pd.DataFrame:
+    """Read labeled_csv, drop label == "unknown", and exclude gold cells.
 
-    Returns (safe_frame, train_idx, test_idx, cutoff_date). Index the same rows out of
-    safe_frame for both splits/scoring -- it, not the raw CSV, carries the leak-safe
-    recurrence_count/first_seen/last_seen/is_anomalous.
+    Shared starting point for both split strategies, so "detection" and
+    "spatial_block" runs on the same labeled_csv are evaluated against the exact
+    same candidate rows before splitting.
     """
     frame = pd.read_csv(labeled_csv)
     frame = frame[frame["label"] != "unknown"].reset_index(drop=True)
     frame = exclude_gold_cells(frame, gold_csv)
     if frame.empty:
         raise ValueError(f"No non-'unknown', non-gold-cell rows found in {labeled_csv}")
+    return frame
 
-    train_idx, test_idx = spatial_block_split(frame, test_fraction=test_fraction, seed=seed)
+
+def prepare_training_frame(
+    labeled_csv: str | Path,
+    gold_csv: str | Path = GOLD_SAMPLE_PATH,
+    test_fraction: float = SPATIAL_SPLIT_TEST_FRACTION,
+    seed: int = RANDOM_SEED,
+    split: str = "detection",
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, str]:
+    """Load labeled_csv, exclude unknown/gold rows, split, and recompute pre-split-safe
+    features. Shared by train() and evaluate() so both operate on identically-prepared
+    data -- evaluate() calling this with the model's own recorded seed is what makes
+    its reproduced test set match the one the model was actually evaluated against.
+
+    `split` selects the strategy -- "detection" (default; see
+    detection_level_temporal_split) or "spatial_block" (see spatial_block_split) --
+    see the module docstring for why "detection" is the default train() uses.
+
+    Returns (safe_frame, train_idx, test_idx, cutoff_date). Index the same rows out of
+    safe_frame for both splits/scoring -- it, not the raw CSV, carries the leak-safe
+    recurrence_count/first_seen/last_seen/is_anomalous.
+    """
+    if split not in SPLIT_STRATEGIES:
+        raise ValueError(f"split must be one of {SPLIT_STRATEGIES}, got {split!r}")
+    frame = _load_and_filter_frame(labeled_csv, gold_csv)
+
+    if split == "detection":
+        train_idx, test_idx, cutoff_date = detection_level_temporal_split(frame, test_fraction=test_fraction)
+    else:
+        train_idx, test_idx = spatial_block_split(frame, test_fraction=test_fraction, seed=seed)
+        cutoff_date = frame.loc[test_idx, "acq_date"].min() if len(test_idx) else None
+
     if len(train_idx) == 0 or len(test_idx) == 0:
         raise ValueError(
-            "Spatial-block split produced an empty train or test set -- "
-            "not enough distinct grid cells in this dataset to hold one out."
+            f"{split} split produced an empty train or test set -- "
+            "not enough distinct grid cells/dates in this dataset to hold one out."
         )
 
-    cutoff_date = frame.loc[test_idx, "acq_date"].min()
     safe_frame = recompute_pre_split_features(frame, cutoff_date)
     return safe_frame, train_idx, test_idx, cutoff_date
 
@@ -206,9 +278,10 @@ def train(
     labeled_csv: str | Path,
     output_artifact: str | Path = MODEL_ARTIFACT_PATH,
     gold_csv: str | Path = GOLD_SAMPLE_PATH,
+    split: str = "detection",
 ) -> dict:
     labeled_csv = Path(labeled_csv)
-    safe_frame, train_idx, test_idx, cutoff_date = prepare_training_frame(labeled_csv, gold_csv=gold_csv)
+    safe_frame, train_idx, test_idx, cutoff_date = prepare_training_frame(labeled_csv, gold_csv=gold_csv, split=split)
 
     train_frame = safe_frame.loc[train_idx]
     test_frame = safe_frame.loc[test_idx]
@@ -258,6 +331,7 @@ def train(
             "n_grid_cells_train": int(_cell_ids(train_frame).nunique()),
             "n_grid_cells_test": int(_cell_ids(test_frame).nunique()),
             "gold_cells_excluded": len(_load_gold_cell_ids(gold_csv)),
+            "split_strategy": split,
             "split_cutoff_date": str(cutoff_date),
             "xgboost_version": xgboost.__version__,
             "device": device,
@@ -274,10 +348,11 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--labeled-csv", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=MODEL_ARTIFACT_PATH)
+    parser.add_argument("--split", choices=SPLIT_STRATEGIES, default="detection")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    artifact = train(args.labeled_csv, output_artifact=args.output)
+    artifact = train(args.labeled_csv, output_artifact=args.output, split=args.split)
     print(f"Trained on device={artifact['metadata']['device']}, wrote {args.output}")
