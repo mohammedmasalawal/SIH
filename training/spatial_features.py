@@ -126,28 +126,47 @@ def nearest_facility_distance(
     Point-to-point nearest-neighbour against GEM's single lat/lon per facility, so
     it can pick the wrong point for a large multi-site complex (see README) --
     treat the result as "nearest tagged facility of this type," not "distance to
-    the site boundary."
+    the site boundary." Distances are only meaningful in a projected (metric) CRS --
+    callers must reproject both detections and facilities before calling this (see
+    training/build_labels.py, which uses EPSG:7755 for India-wide accuracy).
+
+    subset.sindex is built explicitly before the join, not left to be built lazily
+    on gpd.sjoin_nearest's first internal query -- geopandas' sjoin_nearest always
+    uses a spatial index either way, but building it up front here means a caller
+    timing this call (see training/benchmark_joins.py) measures the join itself,
+    not index construction folded into the first call.
     """
     subset = facilities[facilities["facility_type"].isin(facility_types)]
     if subset.empty:
         empty = pd.Series(None, index=detections.index)
         return empty.astype("float64"), empty.astype("object")
+    subset.sindex  # force spatial-index construction before the timed join
     joined = gpd.sjoin_nearest(detections[["geometry"]], subset[["geometry", "facility_type"]], distance_col="_dist")
     joined = joined.reset_index(names="_detection_idx").sort_values("_dist")
     nearest = joined.drop_duplicates(subset="_detection_idx", keep="first").set_index("_detection_idx")
     return nearest["_dist"].reindex(detections.index), nearest["facility_type"].reindex(detections.index)
 
 
-def landcover_majority(points_3857: gpd.GeoSeries, raster_path: str | Path, buffer_m: float = 375) -> pd.Series:
+def landcover_majority(points_projected: gpd.GeoSeries, raster_path: str | Path, buffer_m: float = 375) -> pd.Series:
     """Majority ESA WorldCover class code within buffer_m metres of each point.
+
+    points_projected must already be in a projected (metric) CRS -- buffer_m is
+    interpreted in that CRS's units. Reprojects the buffered geometries from
+    points_projected's own CRS (points_projected.crs), not a hardcoded one, so this
+    works the same whether the caller used EPSG:3857 or an India-wide CRS like
+    EPSG:7755. (An earlier version hardcoded crs="EPSG:3857" here regardless of the
+    input's actual CRS -- silently wrong the moment a caller passed anything else.)
 
     Left null (never fabricated) when the raster has no data at a point -- callers
     who omit --worldcover entirely get the same null, which silently disables the
-    agricultural burning and wildfire rules per the README.
+    agricultural burning and wildfire rules per the README. For a national-scale
+    run spanning many WorldCover tiles, prefer
+    training.worldcover_index.WorldCoverTileIndex.majority_class_in_buffer instead
+    of this function, which expects one single raster covering every point.
     """
     with rasterio.open(raster_path) as raster:
         nodata = raster.nodata
-        buffered = gpd.GeoSeries(points_3857.buffer(buffer_m), crs="EPSG:3857").to_crs(raster.crs)
+        buffered = gpd.GeoSeries(points_projected.buffer(buffer_m), crs=points_projected.crs).to_crs(raster.crs)
         classes: list[str | None] = []
         for geom in buffered:
             try:
@@ -163,4 +182,4 @@ def landcover_majority(points_3857: gpd.GeoSeries, raster_path: str | Path, buff
                 classes.append(None)
                 continue
             classes.append(str(Counter(values.tolist()).most_common(1)[0][0]))
-    return pd.Series(classes, index=points_3857.index)
+    return pd.Series(classes, index=points_projected.index)

@@ -39,6 +39,19 @@ CONTRACT_COLUMNS = [
 GRID_SIZE = 0.0034  # roughly 375 m at this latitude
 MIN_PRIOR_ACTIVE_DAYS = 5
 ANOMALY_Z_THRESHOLD = 3.5
+# India-wide Lambert conformal conic ("India NSF LCC") -- used for every distance
+# computation in training/build_labels.py instead of EPSG:3857/Web Mercator, whose
+# distance distortion varies enough across India's latitude range (~6N-37N) to bias
+# dist_to_*_m differently in the north vs. the south. Covers all of India including
+# Andaman/Nicobar, Lakshadweep, and Sikkim (see its EPSG area-of-use).
+NATIONAL_PROJECTED_CRS = "EPSG:7755"
+# Dissolved India state/UT boundary (Natural Earth admin-1, filtered to India, all 36
+# states/UTs -- see training/report_by_state.py) used to clip FIRMS pulls to India's
+# actual shape. INDIA_BBOX in backend/ingestion/firms_client.py is a loose rectangle
+# (FIRMS' area API only accepts bbox, not a polygon) that also catches real fires in
+# Myanmar, Sri Lanka, and Pakistan -- 47% of a one-month India-bbox pull, in practice.
+# This boundary is what actually restricts ingested detections to India.
+INDIA_BOUNDARY_PATH = ROOT_DIR / "data" / "external" / "boundaries" / "india_states.parquet"
 
 # --- Training artifacts ------------------------------------------------------------
 MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model.pkl"

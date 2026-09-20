@@ -5,7 +5,12 @@ import pandas as pd
 import pytest
 from shapely.geometry import Point
 
-from training.spatial_features import add_recurrence_features, compute_is_anomalous, grid_keys, nearest_facility_distance
+from training.spatial_features import (
+    add_recurrence_features,
+    compute_is_anomalous,
+    grid_keys,
+    nearest_facility_distance,
+)
 
 
 def test_grid_keys_snaps_nearby_points_together():

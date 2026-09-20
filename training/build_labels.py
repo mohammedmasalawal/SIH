@@ -9,7 +9,7 @@ import geopandas as gpd
 import pandas as pd
 
 from backend.classification.rules import FLARE_CAPABLE_FACILITY_TYPES, HEAT_INDUSTRY_FACILITY_TYPES, apply_rules
-from backend.config import CONTRACT_COLUMNS
+from backend.config import CONTRACT_COLUMNS, NATIONAL_PROJECTED_CRS
 from training.spatial_features import (
     add_recurrence_features,
     compute_is_anomalous,
@@ -39,16 +39,23 @@ def build_labels(
     .geojson (regional caches, gpd.read_file) or .parquet (national-scale caches, e.g.
     backend.ingestion.context_sources.extract_osm_industrial_context's output,
     gpd.read_parquet) -- picked by extension either way.
+
+    Distances are computed in NATIONAL_PROJECTED_CRS (EPSG:7755, an India-wide
+    Lambert conformal conic) rather than EPSG:3857/Web Mercator -- Web Mercator's
+    distance distortion grows with latitude and is severe enough at India's scale
+    (roughly 6N-37N) to bias dist_to_*_m by a meaningfully different amount at
+    Kashmir than at Kanyakumari; a single equal-ish conformal CRS keeps that
+    distortion approximately constant across the whole country.
     """
     firms_csv = Path(firms_csv)
     firms = pd.read_parquet(firms_csv) if firms_csv.suffix == ".parquet" else pd.read_csv(firms_csv)
-    industrial = _read_vector(industrial_geojson).to_crs("EPSG:3857")
-    facilities = _read_vector(facilities_geojson).to_crs("EPSG:3857")
+    industrial = _read_vector(industrial_geojson).to_crs(NATIONAL_PROJECTED_CRS)
+    facilities = _read_vector(facilities_geojson).to_crs(NATIONAL_PROJECTED_CRS)
     detections = gpd.GeoDataFrame(
         firms,
         geometry=gpd.points_from_xy(firms["longitude"], firms["latitude"]),
         crs="EPSG:4326",
-    ).to_crs("EPSG:3857")
+    ).to_crs(NATIONAL_PROJECTED_CRS)
 
     industrial_union = industrial.geometry.union_all() if not industrial.empty else None
     result = firms.copy()
