@@ -83,6 +83,28 @@ def test_tag_count_report_counts_by_exact_tag_value(sample_pbf: Path, tmp_path: 
     assert tags == {"man_made=flare": 1, "power=plant": 1, "landuse=industrial": 1}
 
 
+def test_self_intersecting_way_is_repaired_not_left_invalid(tmp_path: Path):
+    """A bowtie ring (self-intersecting, as real crowd-sourced OSM edits sometimes
+    are -- see the 3/37,908 hit on the real India extract) must come out of
+    extraction as a valid geometry, not raise later when something calls
+    union_all()/sjoin() on it (shapely.errors.GEOSException: TopologyException)."""
+    pbf_path = tmp_path / "bowtie.osm.pbf"
+    writer = osmium.SimpleWriter(str(pbf_path))
+    # bowtie: (0,0) -> (1,1) -> (1,0) -> (0,1) -> (0,0), edges cross at the middle
+    writer.add_node(mutable.Node(id=1, location=(69.00, 22.00), tags={}, version=1))
+    writer.add_node(mutable.Node(id=2, location=(69.01, 22.01), tags={}, version=1))
+    writer.add_node(mutable.Node(id=3, location=(69.01, 22.00), tags={}, version=1))
+    writer.add_node(mutable.Node(id=4, location=(69.00, 22.01), tags={}, version=1))
+    writer.add_way(mutable.Way(id=20, nodes=[1, 2, 3, 4, 1], tags={"landuse": "industrial"}, version=1))
+    writer.close()
+
+    frame = extract_osm_industrial_context(pbf_path, tmp_path / "bowtie.parquet")
+    assert len(frame) == 1
+    assert frame.geometry.is_valid.all()
+    # repairing a self-intersecting ring must not just silently drop it to an empty/null geometry
+    assert not frame.geometry.iloc[0].is_empty
+
+
 def test_osm_target_tags_cover_the_four_requested_categories():
     assert OSM_TARGET_TAGS["landuse"] == {"industrial"}
     assert OSM_TARGET_TAGS["industrial"] is None  # any value

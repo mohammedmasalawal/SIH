@@ -120,6 +120,16 @@ def extract_osm_industrial_context(
     handler.apply_file(str(pbf_path), locations=True, idx="flex_mem")
 
     frame = gpd.GeoDataFrame(handler.rows, geometry="geometry", crs="EPSG:4326")
+    # National-scale crowd-sourced OSM polygons routinely include a handful of
+    # self-intersecting/degenerate rings (bad user edits, not anything this
+    # extractor does) -- repaired here once, at cache-build time, rather than
+    # leaving every downstream union_all()/sjoin() call to hit
+    # shapely.errors.GEOSException: TopologyException on whichever one it meets
+    # first. A regional/single-city extract is small and curated enough that this
+    # was never actually exercised before national scale.
+    invalid = ~frame.geometry.is_valid
+    if invalid.any():
+        frame.loc[invalid, "geometry"] = frame.loc[invalid, "geometry"].make_valid()
     destination.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(destination)
     return frame
