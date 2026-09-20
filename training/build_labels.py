@@ -20,6 +20,13 @@ from training.spatial_features import (
 )
 
 
+def _read_vector(path: str | Path) -> gpd.GeoDataFrame:
+    """GeoJSON (regional/testing caches) or GeoParquet (national-scale caches,
+    e.g. extract_osm_industrial_context's output), picked by file extension."""
+    path = Path(path)
+    return gpd.read_parquet(path) if path.suffix == ".parquet" else gpd.read_file(path)
+
+
 def build_labels(
     firms_csv: str | Path,
     industrial_geojson: str | Path,
@@ -28,9 +35,15 @@ def build_labels(
     *,
     worldcover_raster: str | Path | None = None,
 ) -> pd.DataFrame:
-    firms = pd.read_csv(firms_csv)
-    industrial = gpd.read_file(industrial_geojson).to_crs("EPSG:3857")
-    facilities = gpd.read_file(facilities_geojson).to_crs("EPSG:3857")
+    """firms_csv may be .csv or .parquet. industrial_geojson/facilities_geojson may be
+    .geojson (regional caches, gpd.read_file) or .parquet (national-scale caches, e.g.
+    backend.ingestion.context_sources.extract_osm_industrial_context's output,
+    gpd.read_parquet) -- picked by extension either way.
+    """
+    firms_csv = Path(firms_csv)
+    firms = pd.read_parquet(firms_csv) if firms_csv.suffix == ".parquet" else pd.read_csv(firms_csv)
+    industrial = _read_vector(industrial_geojson).to_crs("EPSG:3857")
+    facilities = _read_vector(facilities_geojson).to_crs("EPSG:3857")
     detections = gpd.GeoDataFrame(
         firms,
         geometry=gpd.points_from_xy(firms["longitude"], firms["latitude"]),
@@ -65,7 +78,10 @@ def build_labels(
             result[column] = None
     output_path = Path(output_csv)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    result[CONTRACT_COLUMNS].to_csv(output_path, index=False)
+    if output_path.suffix == ".parquet":
+        result[CONTRACT_COLUMNS].to_parquet(output_path, index=False)
+    else:
+        result[CONTRACT_COLUMNS].to_csv(output_path, index=False)
     return result[CONTRACT_COLUMNS]
 
 
