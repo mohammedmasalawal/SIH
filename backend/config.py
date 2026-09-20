@@ -17,7 +17,6 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 # both teammates can tune them from one shared file.
 GAS_FLARE_MAX_DIST_M = 1_000
 GAS_FLARE_MIN_RECURRENCE = 5
-GAS_FLARE_REFINERY_MIN_RECURRENCE = 2  # OSM industrial=refinery polygon path, distinct from the GEM-distance path above
 INDUSTRIAL_HEAT_MAX_DIST_M = 2_000
 INDUSTRIAL_MIN_RECURRENCE = 2
 INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M = 500

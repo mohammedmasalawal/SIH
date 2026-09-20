@@ -45,6 +45,14 @@ Both `gold_sample.csv` and `gold_key.csv` are tracked in git deliberately, as an
 
 Teammate 2 must exclude every gold-set cell, and the whole spatial block each one falls in, from both the training split and the recurrence/anomaly recomputation above — a gold cell inside a training block would let manually-verified ground truth leak into the model's own training signal, defeating the point of holding it out.
 
+### `gold_sample.csv` is no longer a clean held-out set — use `gold_holdout.csv` for evaluation
+
+The first batch of `gold_sample.csv` review (`training/data/gold_verified1.csv`, 69 rows, all `industrial`-adjacent) was used *diagnostically*: comparing verified labels against the rule engine's silver labels found `is_gas_flare`'s OSM-`industrial=refinery`-polygon path was wrong 28/30 times (generic refinery activity with no visible flare, not evidence of an actual flare), and `rules.py` was changed as a direct result — that branch now assigns `industrial` instead of `gas flare`, and `gas flare` requires GEM-distance proximity to a flare-capable facility (see the docstrings on `is_gas_flare`/`is_industrial` in `backend/classification/rules.py`).
+
+That means `gold_sample.csv` fed back into a rule change and can no longer serve as an independent check of that rule — reporting accuracy against it would be validating the rules against the same data that shaped them. `training/data/gold_holdout.csv` (15 detections, drawn post-fix from cells the rule engine now labels `industrial`, at most one per ~375m grid cell, none overlapping any cell already in `gold_sample.csv`, blank `verified_label`/`structure_seen`/`confidence` — same shape as `gold_sample.csv`, no silver label included) is the independent evaluation set going forward: review it blind the same way, and its agreement rate is the number that actually tells you whether the fix generalizes, not `gold_sample.csv`'s.
+
+**The ML model must not train on either file.** `training/train_model.py`'s gold-cell exclusion currently only reads `gold_sample.csv` (`GOLD_SAMPLE_PATH` in `backend/config.py`) — it does not yet know about `gold_holdout.csv`, and needs to before any training run happens against a `labeled_hotspots.csv` built after this holdout was drawn, or `gold_holdout.csv`'s cells (and therefore its usefulness as an independent check) will leak into training the same way an unexcluded `gold_sample.csv` cell would.
+
 `daynight` is never used by any labelling rule, deliberately — it's kept as an independent sanity check (real agricultural burning should skew daytime, flares and industrial heat should skew nighttime; that's how this redesign was validated, not how it was built).
 
 ### Contract column changes since the original handoff schema

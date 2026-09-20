@@ -76,9 +76,15 @@ def test_gas_flare_threshold_boundary():
     assert classify(just_over) == "unknown"
 
 
-def test_recurring_hotspot_inside_refinery_polygon_is_gas_flare():
+def test_recurring_hotspot_inside_refinery_polygon_is_industrial_not_gas_flare():
+    """Gold-set verification (gold_verified1.csv vs gold_key.csv) found the old
+    refinery-polygon-only gas-flare path wrong 28/30 times -- generic refinery
+    activity (tank farms, warehouses, pipe racks) with no visible flare stack, not
+    evidence of a flare specifically. Recurrence inside a refinery polygon with no
+    nearby flare-capable GEM facility must resolve to industrial now, never gas
+    flare -- see is_gas_flare's and is_industrial's docstrings."""
     row = pd.Series({"frp": 20, "dist_to_industrial_m": 0, "osm_industrial_tag": "refinery", "dist_to_heat_industry_m": 5000, "dist_to_flare_capable_m": 20_000, "recurrence_count": 2})
-    assert classify(row) == "gas flare"
+    assert classify(row) == "industrial"
 
 
 def test_recurring_hotspot_inside_other_industrial_polygon_is_industrial():
@@ -92,14 +98,29 @@ def test_missing_osm_industrial_tag_does_not_fake_a_polygon_match():
     assert classify(row) == "wildfire"
 
 
-def test_refinery_gas_flare_and_gem_distance_industrial_path_conflict():
-    """A row inside an OSM refinery polygon that also independently qualifies for
-    is_industrial's GEM-distance path (near heat industry, recurrence>=2, not near a
-    flare-capable GEM facility) must resolve to an unresolved conflict, not silently
-    pick one label -- see the comment in is_industrial for why this is deliberate."""
+def test_refinery_polygon_and_gem_heat_distance_no_longer_conflict():
+    """Before the gold-set fix, a row inside an OSM refinery polygon that also
+    independently qualified for is_industrial's GEM-distance path produced an
+    unresolved conflict (is_gas_flare's old refinery-only branch vs is_industrial).
+    is_gas_flare no longer has a polygon-only path, so is_gas_flare and
+    is_industrial are mutually exclusive by construction and this now cleanly
+    resolves to industrial instead of "unknown"/"conflict"."""
     row = pd.Series({
         "dist_to_industrial_m": 0, "osm_industrial_tag": "refinery",
         "dist_to_heat_industry_m": 100, "dist_to_flare_capable_m": 20_000,
         "recurrence_count": 2,
     })
-    assert classify(row) == "unknown"
+    assert classify(row) == "industrial"
+
+
+def test_high_recurrence_refinery_polygon_far_from_any_gem_facility_is_industrial():
+    """The core of the fix: even very high recurrence inside a refinery polygon,
+    with no GEM flare-capable OR heat-industry facility anywhere close, resolves
+    via the polygon path to industrial -- never gas flare, regardless of how
+    persistent the hotspot is."""
+    row = pd.Series({
+        "dist_to_industrial_m": 0, "osm_industrial_tag": "refinery",
+        "dist_to_heat_industry_m": 50_000, "dist_to_flare_capable_m": 50_000,
+        "recurrence_count": 80,
+    })
+    assert classify(row) == "industrial"

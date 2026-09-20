@@ -8,7 +8,6 @@ from backend.config import (
     CROPLAND_LANDCOVER_TERMS,
     GAS_FLARE_MAX_DIST_M,
     GAS_FLARE_MIN_RECURRENCE,
-    GAS_FLARE_REFINERY_MIN_RECURRENCE,
     INDUSTRIAL_HEAT_MAX_DIST_M,
     INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M,
     INDUSTRIAL_MIN_RECURRENCE,
@@ -51,11 +50,21 @@ def _osm_industrial_tag(row: pd.Series) -> str:
 
 
 def is_gas_flare(row: pd.Series) -> bool:
+    """Gas flare requires proximity to a flare-capable GEM facility -- no polygon-only path.
+
+    An earlier version also matched recurrence_count >= 2 inside any OSM
+    industrial=refinery polygon, with no distance requirement at all. Gold-set
+    verification against gold_key.csv's silver labels (see is_industrial's
+    docstring below) found that branch was wrong far more often than right: 28 of
+    30 silver "gas flare" calls in the verified batch had no visible flare
+    structure at the pin, just generic refinery process infrastructure (tank
+    farms, warehouses, pipe racks, ETP/substation buildings) inside the same
+    refinery polygon. That evidence is why the polygon-only path was removed here
+    and folded into is_industrial instead (see below).
+    """
     recurrence = _number(row, "recurrence_count") or 0
     distance = _number(row, "dist_to_flare_capable_m")
-    distance_rule = distance is not None and distance <= GAS_FLARE_MAX_DIST_M and recurrence >= GAS_FLARE_MIN_RECURRENCE
-    refinery_rule = recurrence >= GAS_FLARE_REFINERY_MIN_RECURRENCE and _osm_industrial_tag(row) == "refinery"
-    return distance_rule or refinery_rule
+    return distance is not None and distance <= GAS_FLARE_MAX_DIST_M and recurrence >= GAS_FLARE_MIN_RECURRENCE
 
 
 def is_industrial(row: pd.Series) -> bool:
@@ -66,6 +75,17 @@ def is_industrial(row: pd.Series) -> bool:
     FRP threshold structurally excludes the small ones (see the Sikka cluster).
     daynight is deliberately never used here: it's the independent validation check
     for whether these rules are behaving sanely, not an input to them.
+
+    Path 3 (recurrence_count >= 2 inside any OSM industrial polygon) used to
+    exclude industrial=refinery polygons -- those went to is_gas_flare's
+    polygon-only branch instead. Gold-set verification found that branch wrong
+    28/30 times (see is_gas_flare's docstring): refinery-polygon recurrence is
+    generic refinery activity, not evidence of a flare specifically, so it
+    belongs here regardless of the polygon's industrial=* subtype. `not
+    is_gas_flare(row)` still guards this path: a hotspot that's *also* within
+    GAS_FLARE_MAX_DIST_M of a flare-capable GEM facility keeps that
+    distance-confirmed gas-flare call rather than being forced into an
+    artificial conflict with the (weaker) polygon-only signal.
     """
     heat_distance = _number(row, "dist_to_heat_industry_m")
     flare_distance = _number(row, "dist_to_flare_capable_m")
@@ -76,22 +96,13 @@ def is_industrial(row: pd.Series) -> bool:
     inside_osm_industrial = industrial_distance is not None and industrial_distance <= INDUSTRIAL_POLYGON_TOLERANCE_M
     near_heat_facility_500m = heat_distance is not None and heat_distance <= INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M
 
-    # Paths 1 and 2 predate is_gas_flare's OSM-refinery branch and are deliberately
-    # left unguarded against it (unlike path 3 just below). A GEM-distance hotspot
-    # that's also inside an OSM refinery polygon with recurrence_count >= 2 now
-    # satisfies both this path and is_gas_flare's refinery_rule, so classify()
-    # reports it as an unresolved conflict (label "unknown", label_source
-    # "conflict") rather than either rule silently winning. Do NOT "fix" this by
-    # adding `and not is_gas_flare(row)` here: these rows are genuinely ambiguous
-    # (general refinery heat vs. an actual flare) and are meant to fall through to
-    # manual/gold-set review, not be guessed at.
+    # near_flare_candidate uses the same threshold as is_gas_flare's distance
+    # rule, so this path structurally can never overlap with is_gas_flare.
     if near_heat_industry and not near_flare_candidate and recurrence >= INDUSTRIAL_MIN_RECURRENCE:
         return True
     if recurrence == 1 and (inside_osm_industrial or near_heat_facility_500m):
         return True
-    osm_tag = _osm_industrial_tag(row)
-    inside_other_industrial_polygon = bool(osm_tag) and osm_tag != "refinery"
-    if recurrence >= INDUSTRIAL_MIN_RECURRENCE and inside_other_industrial_polygon and not is_gas_flare(row):
+    if recurrence >= INDUSTRIAL_MIN_RECURRENCE and bool(_osm_industrial_tag(row)) and not is_gas_flare(row):
         return True
     return False
 
@@ -129,8 +140,11 @@ def classify(row: pd.Series) -> str:
 
 def apply_rules(frame: pd.DataFrame) -> pd.DataFrame:
     """label_source distinguishes *why* a row is unknown: "conflict" means more than
-    one rule matched (see is_industrial's paths 1/2 vs. is_gas_flare's refinery_rule
-    for the main source of these); plain "unknown" means no rule matched at all.
+    one rule matched; plain "unknown" means no rule matched at all. is_gas_flare and
+    is_industrial are mutually exclusive by construction (see their docstrings), so
+    the main remaining source of "conflict" is is_industrial's recurrence==1 path
+    overlapping with is_agricultural_burning on a cropland-landcover row with no
+    dist_to_industrial_m.
     """
     result = frame.copy()
     matched = result.apply(_matched_labels, axis=1)
