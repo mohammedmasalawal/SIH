@@ -5,7 +5,13 @@ from unittest.mock import patch
 import pandas as pd
 
 from training.spatial_features import grid_keys
-from training.train_model import detection_level_temporal_split, select_device, spatial_block_split, train
+from training.train_model import (
+    detection_level_temporal_split,
+    exclude_gold_cells,
+    select_device,
+    spatial_block_split,
+    train,
+)
 
 
 def _compute_cell_ids(frame: pd.DataFrame) -> pd.Series:
@@ -75,6 +81,37 @@ def test_detection_level_split_gives_minority_classes_far_more_test_rows_than_sp
     spatial_gas_flare_test = (frame.loc[spatial_test_idx, "label"] == "gas flare").sum()
     detection_gas_flare_test = (frame.loc[detection_test_idx, "label"] == "gas flare").sum()
     assert detection_gas_flare_test > spatial_gas_flare_test
+
+
+def test_exclude_gold_cells_unions_multiple_gold_files(synthetic_labeled_frame, tmp_path):
+    """gold_sample.csv drove the is_gas_flare rule fix, so gold_holdout.csv is the
+    independent check now -- both must be excluded from training, not just the
+    first one. A row is dropped if its cell matches EITHER file, and a single path
+    (the old call shape) still works unchanged."""
+    frame = synthetic_labeled_frame[synthetic_labeled_frame["label"] != "unknown"].reset_index(drop=True)
+    cell_id = _compute_cell_ids(frame)
+    industrial_cell = cell_id[frame["label"] == "industrial"].iloc[0]
+    flare_cell = cell_id[frame["label"] == "gas flare"].iloc[0]
+    industrial_row = frame[cell_id == industrial_cell].iloc[0]
+    flare_row = frame[cell_id == flare_cell].iloc[0]
+
+    gold_a = tmp_path / "gold_a.csv"
+    gold_b = tmp_path / "gold_b.csv"
+    pd.DataFrame([{"sample_id": "A1", "latitude": industrial_row["latitude"], "longitude": industrial_row["longitude"]}]).to_csv(gold_a, index=False)
+    pd.DataFrame([{"sample_id": "B1", "latitude": flare_row["latitude"], "longitude": flare_row["longitude"]}]).to_csv(gold_b, index=False)
+
+    # single path (backward-compatible call shape): only the industrial cell is gone
+    only_a = exclude_gold_cells(frame, gold_csv=gold_a)
+    assert industrial_cell not in set(_compute_cell_ids(only_a))
+    assert flare_cell in set(_compute_cell_ids(only_a))  # gold_b's cell wasn't excluded
+    assert len(only_a) == len(frame) - (cell_id == industrial_cell).sum()
+
+    # both paths together: both cells are gone
+    both = exclude_gold_cells(frame, gold_csv=(gold_a, gold_b))
+    remaining_cells = set(_compute_cell_ids(both))
+    assert industrial_cell not in remaining_cells
+    assert flare_cell not in remaining_cells
+    assert len(both) < len(only_a)
 
 
 def test_select_device_falls_back_to_cpu_when_cuda_probe_fails():

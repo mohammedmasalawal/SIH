@@ -45,6 +45,11 @@ MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model.pkl"
 EVAL_SUMMARY_PATH = ROOT_DIR / "training" / "artifacts" / "eval_summary.json"
 GEM_FACILITIES_PATH = ROOT_DIR / "data" / "external" / "gem_facilities_india.csv"
 GOLD_SAMPLE_PATH = ROOT_DIR / "training" / "data" / "gold_sample.csv"
+GOLD_HOLDOUT_PATH = ROOT_DIR / "training" / "data" / "gold_holdout.csv"
+# Every file whose cells must be excluded from training -- gold_sample.csv drove the
+# is_gas_flare rule fix (see README), so it no longer qualifies as an independent
+# check; gold_holdout.csv is the independent one, and both must stay out of training.
+GOLD_CSV_PATHS = (GOLD_SAMPLE_PATH, GOLD_HOLDOUT_PATH)
 RANDOM_SEED = 42
 SPATIAL_SPLIT_TEST_FRACTION = 0.2
 

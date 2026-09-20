@@ -38,6 +38,7 @@ test) can reflect information from on or after the train/test boundary.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,7 +51,7 @@ from xgboost import XGBClassifier
 
 from backend.classification.features import FEATURE_COLUMNS, hotspots_to_feature_matrix
 from backend.config import (
-    GOLD_SAMPLE_PATH,
+    GOLD_CSV_PATHS,
     MODEL_ARTIFACT_PATH,
     RANDOM_SEED,
     SPATIAL_SPLIT_TEST_FRACTION,
@@ -70,20 +71,33 @@ def _cell_ids(frame: pd.DataFrame) -> pd.Series:
     return grid_lat.astype(str) + "_" + grid_lon.astype(str)
 
 
-def _load_gold_cell_ids(gold_csv: str | Path = GOLD_SAMPLE_PATH) -> set[str]:
-    """Grid-cell ids covered by the manual-review gold set (training/data/gold_sample.csv).
+GoldCsvPaths = str | Path | Sequence[str | Path]
+
+
+def _as_path_list(gold_csv: GoldCsvPaths) -> list[str | Path]:
+    return [gold_csv] if isinstance(gold_csv, (str, Path)) else list(gold_csv)
+
+
+def _load_gold_cell_ids(gold_csv: GoldCsvPaths = GOLD_CSV_PATHS) -> set[str]:
+    """Grid-cell ids covered by every manual-review gold set (default: both
+    training/data/gold_sample.csv and training/data/gold_holdout.csv -- gold_sample.csv
+    drove the is_gas_flare rule fix, so gold_holdout.csv is the independent check now,
+    and both must stay out of training; see README).
 
     Matched purely by cell id, not by exact lat/lon or sample_id -- so anything else
     that happens to fall in the same ~375m block as a gold sample is caught too,
     per the README's "exclude every gold-set cell, and the whole spatial block it
     falls in" requirement.
     """
-    gold = pd.read_csv(gold_csv)
-    return set(_cell_ids(gold))
+    cells: set[str] = set()
+    for path in _as_path_list(gold_csv):
+        gold = pd.read_csv(path)
+        cells |= set(_cell_ids(gold))
+    return cells
 
 
-def exclude_gold_cells(frame: pd.DataFrame, gold_csv: str | Path = GOLD_SAMPLE_PATH) -> pd.DataFrame:
-    """Drop every row whose spatial block contains a gold-verification sample.
+def exclude_gold_cells(frame: pd.DataFrame, gold_csv: GoldCsvPaths = GOLD_CSV_PATHS) -> pd.DataFrame:
+    """Drop every row whose spatial block contains a sample from any gold set.
 
     Must run before spatial_block_split, not after: a gold cell that slipped into
     either side would let hand-verified ground truth leak into that side's own
@@ -202,7 +216,7 @@ def recompute_pre_split_features(frame: pd.DataFrame, cutoff_date: str) -> pd.Da
     return result
 
 
-def _load_and_filter_frame(labeled_csv: str | Path, gold_csv: str | Path) -> pd.DataFrame:
+def _load_and_filter_frame(labeled_csv: str | Path, gold_csv: GoldCsvPaths) -> pd.DataFrame:
     """Read labeled_csv, drop label == "unknown", and exclude gold cells.
 
     Shared starting point for both split strategies, so "detection" and
@@ -219,7 +233,7 @@ def _load_and_filter_frame(labeled_csv: str | Path, gold_csv: str | Path) -> pd.
 
 def prepare_training_frame(
     labeled_csv: str | Path,
-    gold_csv: str | Path = GOLD_SAMPLE_PATH,
+    gold_csv: GoldCsvPaths = GOLD_CSV_PATHS,
     test_fraction: float = SPATIAL_SPLIT_TEST_FRACTION,
     seed: int = RANDOM_SEED,
     split: str = "detection",
@@ -277,7 +291,7 @@ def select_device() -> str:
 def train(
     labeled_csv: str | Path,
     output_artifact: str | Path = MODEL_ARTIFACT_PATH,
-    gold_csv: str | Path = GOLD_SAMPLE_PATH,
+    gold_csv: GoldCsvPaths = GOLD_CSV_PATHS,
     split: str = "detection",
 ) -> dict:
     labeled_csv = Path(labeled_csv)
@@ -331,6 +345,7 @@ def train(
             "n_grid_cells_train": int(_cell_ids(train_frame).nunique()),
             "n_grid_cells_test": int(_cell_ids(test_frame).nunique()),
             "gold_cells_excluded": len(_load_gold_cell_ids(gold_csv)),
+            "gold_csv_paths": [str(p) for p in _as_path_list(gold_csv)],
             "split_strategy": split,
             "split_cutoff_date": str(cutoff_date),
             "xgboost_version": xgboost.__version__,

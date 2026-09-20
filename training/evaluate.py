@@ -26,15 +26,15 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
 from backend.classification.features import hotspots_to_feature_matrix
-from backend.config import EVAL_SUMMARY_PATH, GOLD_SAMPLE_PATH, MODEL_ARTIFACT_PATH, RANDOM_SEED
-from training.train_model import SPLIT_STRATEGIES, prepare_training_frame
+from backend.config import EVAL_SUMMARY_PATH, GOLD_CSV_PATHS, MODEL_ARTIFACT_PATH, RANDOM_SEED
+from training.train_model import SPLIT_STRATEGIES, GoldCsvPaths, prepare_training_frame
 
 
 def evaluate(
     labeled_csv: str | Path,
     model_path: str | Path = MODEL_ARTIFACT_PATH,
     output_summary: str | Path = EVAL_SUMMARY_PATH,
-    gold_csv: str | Path = GOLD_SAMPLE_PATH,
+    gold_csv: GoldCsvPaths = GOLD_CSV_PATHS,
     split: str | None = None,
 ) -> dict:
     """Score model_path against one split. `split` defaults to the model's own
@@ -108,7 +108,7 @@ def evaluate_both_splits(
     labeled_csv: str | Path,
     model_path: str | Path = MODEL_ARTIFACT_PATH,
     output_dir: str | Path = None,
-    gold_csv: str | Path = GOLD_SAMPLE_PATH,
+    gold_csv: GoldCsvPaths = GOLD_CSV_PATHS,
 ) -> dict[str, dict]:
     """Score the same fitted model against both split strategies and return both
     summaries -- so a reviewer sees the detection-level numbers the model was
