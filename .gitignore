@@ -5,5 +5,8 @@ __pycache__/
 .venv/
 data/raw/
 data/context/
+data/osm/
+data/external/boundaries/
+data/external/gem_facilities_india.geojson
 training/data/
 training/artifacts/
