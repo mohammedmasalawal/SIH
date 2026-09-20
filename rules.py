@@ -30,10 +30,19 @@ HEAT_INDUSTRY_FACILITY_TYPES = (
 )
 
 
+def _osm_industrial_tag(row: pd.Series) -> str:
+    value = row.get("osm_industrial_tag")
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).lower()
+
+
 def is_gas_flare(row: pd.Series) -> bool:
     recurrence = _number(row, "recurrence_count") or 0
     distance = _number(row, "dist_to_flare_capable_m")
-    return distance is not None and distance <= 1_000 and recurrence >= 5
+    distance_rule = distance is not None and distance <= 1_000 and recurrence >= 5
+    refinery_rule = recurrence >= 2 and _osm_industrial_tag(row) == "refinery"
+    return distance_rule or refinery_rule
 
 
 def is_industrial(row: pd.Series) -> bool:
@@ -54,9 +63,22 @@ def is_industrial(row: pd.Series) -> bool:
     inside_osm_industrial = industrial_distance is not None and industrial_distance <= 1
     near_heat_facility_500m = heat_distance is not None and heat_distance <= 500
 
+    # Paths 1 and 2 predate is_gas_flare's OSM-refinery branch and are deliberately
+    # left unguarded against it (unlike path 3 just below). A GEM-distance hotspot
+    # that's also inside an OSM refinery polygon with recurrence_count >= 2 now
+    # satisfies both this path and is_gas_flare's refinery_rule, so classify()
+    # reports it as an unresolved conflict (label "unknown", label_source
+    # "conflict") rather than either rule silently winning. Do NOT "fix" this by
+    # adding `and not is_gas_flare(row)` here: these rows are genuinely ambiguous
+    # (general refinery heat vs. an actual flare) and are meant to fall through to
+    # manual/gold-set review, not be guessed at.
     if near_heat_industry and not near_flare_candidate and recurrence >= 2:
         return True
     if recurrence == 1 and (inside_osm_industrial or near_heat_facility_500m):
+        return True
+    osm_tag = _osm_industrial_tag(row)
+    inside_other_industrial_polygon = bool(osm_tag) and osm_tag != "refinery"
+    if recurrence >= 2 and inside_other_industrial_polygon and not is_gas_flare(row):
         return True
     return False
 
@@ -73,19 +95,30 @@ def is_wildfire(row: pd.Series) -> bool:
     return any(term in landcover for term in ("forest", "shrub", "grass", "woodland", "10", "20", "30")) and (distance is None or distance > 2_000)
 
 
-def classify(row: pd.Series) -> str:
+def _matched_labels(row: pd.Series) -> list[str]:
     matches = [
         ("gas flare", is_gas_flare),
         ("industrial", is_industrial),
         ("agricultural burning", is_agricultural_burning),
         ("wildfire", is_wildfire),
     ]
-    matched = [label for label, rule in matches if rule(row)]
+    return [label for label, rule in matches if rule(row)]
+
+
+def classify(row: pd.Series) -> str:
+    matched = _matched_labels(row)
     return matched[0] if len(matched) == 1 else "unknown"
 
 
 def apply_rules(frame: pd.DataFrame) -> pd.DataFrame:
+    """label_source distinguishes *why* a row is unknown: "conflict" means more than
+    one rule matched (see is_industrial's paths 1/2 vs. is_gas_flare's refinery_rule
+    for the main source of these); plain "unknown" means no rule matched at all.
+    """
     result = frame.copy()
-    result["label"] = result.apply(classify, axis=1)
-    result["label_source"] = result["label"].map(lambda label: "rule" if label != "unknown" else "unknown")
+    matched = result.apply(_matched_labels, axis=1)
+    result["label"] = matched.map(lambda labels: labels[0] if len(labels) == 1 else "unknown")
+    result["label_source"] = matched.map(
+        lambda labels: "rule" if len(labels) == 1 else ("conflict" if len(labels) > 1 else "unknown")
+    )
     return result
