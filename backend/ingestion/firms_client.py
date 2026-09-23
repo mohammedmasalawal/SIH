@@ -223,7 +223,33 @@ def _finalize(
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.suffix == ".parquet":
-        combined.to_parquet(destination, index=False)
+        # FIRMS' `version` column (and potentially others) is formatted differently
+        # per source -- SP archive rows read as e.g. "2.0", NRT rows as "2.0NRT" --
+        # so a pull spanning both (any multi-satellite range predating the SP/NRT
+        # cutover, since NOAA-21 has no SP at all) concatenates into an object
+        # column pandas/pyarrow can't agree on a single Arrow type for, and
+        # to_parquet raises ArrowInvalid. An earlier version of this fix cast
+        # *every* object-dtype column to string, which also silently stringified
+        # latitude/longitude/bright_ti4/bright_ti5/frp/scan/track/type whenever
+        # per-chunk dtype inference happened to leave one of them as object before
+        # concat (observed on two real pulls, no bad values involved -- pure
+        # pandas dtype-inference happenstance across ~18 five-day chunks per
+        # satellite segment) -- every downstream numeric op on those columns broke
+        # silently-until-used. Numeric columns are now coerced back to numeric
+        # explicitly (errors="raise": a real non-numeric value here should fail
+        # loudly, not get quietly stringified); only the genuinely textual leftover
+        # object columns (version, confidence, satellite, ...) are cast to string.
+        # CSV output is unaffected (already untyped text either way).
+        to_write = combined.copy()
+        numeric_columns = [
+            c for c in ("latitude", "longitude", "bright_ti4", "bright_ti5", "frp", "scan", "track", "type")
+            if c in to_write.columns
+        ]
+        for column in numeric_columns:
+            to_write[column] = pd.to_numeric(to_write[column], errors="raise")
+        object_columns = [c for c in to_write.select_dtypes(include="object").columns if c not in numeric_columns]
+        to_write[object_columns] = to_write[object_columns].astype(str)
+        to_write.to_parquet(destination, index=False)
     else:
         combined.to_csv(destination, index=False)
     return combined

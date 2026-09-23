@@ -15,6 +15,7 @@ from backend.ingestion.firms_client import (
     INDIA_COUNTRY_CODE,
     _clip_to_boundary,
     _env,
+    _finalize,
     _format_bbox,
     fetch_firms,
     fetch_firms_country,
@@ -130,3 +131,63 @@ def test_clip_to_boundary_drops_points_outside_the_polygon(tmp_path: Path):
     assert len(clipped) == 1
     assert clipped.iloc[0]["longitude"] == 69.5
     assert clipped.iloc[0]["latitude"] == 21.5
+
+
+def _mixed_source_chunk(version_value: str) -> pd.DataFrame:
+    return pd.DataFrame({
+        "latitude": [21.5], "longitude": [69.5], "acq_date": ["2026-01-01"], "acq_time": ["0130"],
+        "satellite": ["N20"], "bright_ti4": [300.0], "bright_ti5": [290.0], "frp": [1.5],
+        "confidence": ["n"], "daynight": ["D"], "version": [version_value],
+    })
+
+
+def test_finalize_parquet_survives_mixed_sp_nrt_version_column(tmp_path: Path):
+    """Regression test: concatenating an SP chunk (version like "2.0") with an NRT
+    chunk (version like "2.0NRT") -- any multi-satellite pull spanning both, since
+    NOAA-21 has no SP source at all -- used to raise pyarrow.lib.ArrowInvalid on
+    to_parquet because pandas left `version` as a mixed-content object column."""
+    frames = [_mixed_source_chunk("2.0"), _mixed_source_chunk("2.0NRT")]
+    output_path = tmp_path / "out.parquet"
+    result = _finalize(frames, date(2026, 1, 1), date(2026, 1, 1), output_path)
+    assert len(result) == 2
+
+    on_disk = pd.read_parquet(output_path)
+    assert set(on_disk["version"]) == {"2.0", "2.0NRT"}
+    assert on_disk["version"].dtype == object or str(on_disk["version"].dtype) == "str"
+
+
+def test_finalize_parquet_keeps_latitude_longitude_numeric(tmp_path: Path):
+    """Regression test for the fix's own first version: it cast *every*
+    object-dtype column to string, including latitude/longitude/bright_ti4/etc
+    whenever per-chunk dtype inference happened to leave one of them as object
+    before concat (observed for real on a Mar-May 2026 national pull -- no bad
+    values involved, pure pandas dtype-inference happenstance across many 5-day
+    API chunks). Numeric columns must come out of the parquet round-trip as
+    numeric, not string, regardless of what dtype they had in memory beforehand.
+    """
+    chunk_a = _mixed_source_chunk("2.0")
+    chunk_b = _mixed_source_chunk("2.0NRT")
+    # Simulate the real-world dtype-inference quirk: one chunk's latitude ends up
+    # as a Python-object column (as if read_csv had inferred it that way) before
+    # concatenation, even though every value is genuinely numeric.
+    chunk_b["latitude"] = chunk_b["latitude"].astype(object)
+
+    output_path = tmp_path / "out.parquet"
+    _finalize([chunk_a, chunk_b], date(2026, 1, 1), date(2026, 1, 1), output_path)
+
+    on_disk = pd.read_parquet(output_path)
+    assert pd.api.types.is_numeric_dtype(on_disk["latitude"])
+    assert pd.api.types.is_numeric_dtype(on_disk["longitude"])
+    assert pd.api.types.is_numeric_dtype(on_disk["bright_ti4"])
+    assert on_disk["latitude"].tolist() == [21.5, 21.5]
+
+
+def test_finalize_parquet_raises_loudly_on_genuinely_bad_numeric_value(tmp_path: Path):
+    """A real non-numeric value in a numeric column must fail loudly (errors="raise"
+    in the pd.to_numeric coercion), not get silently stringified the way the
+    blanket-cast version of this fix would have."""
+    chunk = _mixed_source_chunk("2.0")
+    chunk["latitude"] = ["not-a-number"]
+    output_path = tmp_path / "out.parquet"
+    with pytest.raises((ValueError, TypeError)):
+        _finalize([chunk], date(2026, 1, 1), date(2026, 1, 1), output_path)
