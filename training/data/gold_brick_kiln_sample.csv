@@ -1,0 +1,11 @@
+sample_id,latitude,longitude,acq_date,acq_time,acq_time_ist,maps_link,verified_label,structure_seen,confidence
+BK001,30.74416,76.51903,2025-11-20,2055,02:25,"https://www.google.com/maps?q=30.74416,76.51903&t=k",,,
+BK002,31.41328,76.27453,2025-10-17,748,13:18,"https://www.google.com/maps?q=31.41328,76.27453&t=k",,,
+BK003,29.72202,77.16512,2026-04-20,731,13:01,"https://www.google.com/maps?q=29.72202,77.16512&t=k",,,
+BK004,27.37547,95.08626,2026-06-26,1858,00:28,"https://www.google.com/maps?q=27.37547,95.08626&t=k",,,
+BK005,31.10305,75.95817,2026-05-20,721,12:51,"https://www.google.com/maps?q=31.10305,75.95817&t=k",,,
+BK006,22.72345,86.32201,2026-01-20,716,12:46,"https://www.google.com/maps?q=22.72345,86.32201&t=k",,,
+BK007,22.78683,86.0062,2026-05-14,1959,01:29,"https://www.google.com/maps?q=22.78683,86.0062&t=k",,,
+BK008,31.09611,76.05495,2026-05-01,817,13:47,"https://www.google.com/maps?q=31.09611,76.05495&t=k",,,
+BK009,21.48069,83.80404,2026-01-21,748,13:18,"https://www.google.com/maps?q=21.48069,83.80404&t=k",,,
+BK010,23.68309,87.13034,2026-05-15,2027,01:57,"https://www.google.com/maps?q=23.68309,87.13034&t=k",,,

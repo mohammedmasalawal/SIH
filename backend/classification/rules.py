@@ -5,6 +5,8 @@ from __future__ import annotations
 import pandas as pd
 
 from backend.config import (
+    BRICK_KILN_MAX_DIST_M,
+    BRICK_KILN_MIN_RECURRENCE,
     COAL_MINE_MAX_DIST_M,
     COAL_MINE_MIN_RECURRENCE,
     COAL_MINE_OSM_MAX_DIST_M,
@@ -111,12 +113,26 @@ def is_industrial(row: pd.Series) -> bool:
     needs to be closer (COAL_MINE_OSM_MAX_DIST_M) and more persistent
     (COAL_MINE_OSM_MIN_RECURRENCE) to count. This path doesn't touch flare-related
     distances at all, so it can't create a new is_gas_flare overlap.
+
+    Path 6 is a dedicated brick-kiln distance path (dist_to_brick_kiln_m,
+    training.spatial_features.nearest_brick_kiln_distance), same reasoning as the
+    coal-mine path -- brick kilns aren't a GEM facility type, so
+    dist_to_heat_industry_m never sees one. It doesn't reuse path 2/3's
+    polygon-containment logic because man_made=kiln is typically mapped as an OSM
+    node, not a polygon -- osm_industrial_tag only reflects polygon containment, so
+    a detection near (not literally inside) a kiln node would otherwise be invisible
+    to every other path. industrial=brickyard/man_made=kiln are specific tags,
+    unlike industrial=mine's generic-to-any-mine-type tag, so this path is trusted
+    at the same recurrence bar as a GEM match (BRICK_KILN_MIN_RECURRENCE) despite
+    being OSM-sourced. Like the coal-mine paths, it doesn't touch flare-related
+    distances, so it can't create a new is_gas_flare overlap either.
     """
     heat_distance = _number(row, "dist_to_heat_industry_m")
     flare_distance = _number(row, "dist_to_flare_capable_m")
     industrial_distance = _number(row, "dist_to_industrial_m")
     coal_distance = _number(row, "dist_to_coal_mine_m")
     coal_source = _coal_source(row)
+    brick_kiln_distance = _number(row, "dist_to_brick_kiln_m")
     recurrence = _number(row, "recurrence_count") or 0
     near_heat_industry = heat_distance is not None and heat_distance <= INDUSTRIAL_HEAT_MAX_DIST_M
     near_flare_candidate = flare_distance is not None and flare_distance <= GAS_FLARE_MAX_DIST_M
@@ -126,6 +142,7 @@ def is_industrial(row: pd.Series) -> bool:
     near_osm_coal_mine = (
         coal_source == "osm" and coal_distance is not None and coal_distance <= COAL_MINE_OSM_MAX_DIST_M
     )
+    near_brick_kiln = brick_kiln_distance is not None and brick_kiln_distance <= BRICK_KILN_MAX_DIST_M
 
     # near_flare_candidate uses the same threshold as is_gas_flare's distance
     # rule, so this path structurally can never overlap with is_gas_flare.
@@ -138,6 +155,8 @@ def is_industrial(row: pd.Series) -> bool:
     if near_gem_coal_mine and recurrence >= COAL_MINE_MIN_RECURRENCE:
         return True
     if near_osm_coal_mine and recurrence >= COAL_MINE_OSM_MIN_RECURRENCE:
+        return True
+    if near_brick_kiln and recurrence >= BRICK_KILN_MIN_RECURRENCE:
         return True
     return False
 

@@ -20,6 +20,7 @@ from backend.ingestion.context_sources import (
     exclude_renewable_power_plants,
     load_gem_coal_mine_boundaries,
     load_gem_coal_mine_points,
+    load_osm_brick_kilns,
     load_osm_mines,
 )
 from training.spatial_features import (
@@ -27,6 +28,7 @@ from training.spatial_features import (
     compute_is_anomalous,
     grid_keys,
     landcover_majority,
+    nearest_brick_kiln_distance,
     nearest_coal_mine_distance,
     nearest_facility_distance,
     nearest_industrial_distance,
@@ -102,6 +104,9 @@ def build_labels(
     coal_dist, coal_source = nearest_coal_mine_distance(detections, gem_coal_boundaries, gem_coal_points, osm_mines)
     result["dist_to_coal_mine_m"] = coal_dist.values
     result["nearest_coal_source"] = coal_source.values
+
+    osm_brick_kilns = load_osm_brick_kilns(industrial)
+    result["dist_to_brick_kiln_m"] = nearest_brick_kiln_distance(detections, osm_brick_kilns).values
 
     grid_lat, grid_lon = grid_keys(result)
     result = add_recurrence_features(result, grid_lat, grid_lon)

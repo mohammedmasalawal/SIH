@@ -22,6 +22,7 @@ def test_contract_columns_matches_expected_order():
         "dist_to_flare_capable_m", "nearest_flare_facility_type",
         "dist_to_heat_industry_m", "nearest_heat_facility_type",
         "dist_to_coal_mine_m", "nearest_coal_source",
+        "dist_to_brick_kiln_m",
         "landcover_class", "recurrence_count", "first_seen", "last_seen",
         "is_anomalous", "label", "label_source",
     ]

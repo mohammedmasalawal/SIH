@@ -252,6 +252,25 @@ def load_osm_mines(industrial_context: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return industrial_context[industrial_context["industrial"] == "mine"].copy()
 
 
+def load_osm_brick_kilns(industrial_context: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """The industrial=brickyard / man_made=kiln subset of an already-extracted OSM
+    industrial-context frame -- no GEM equivalent exists for brick kilns at all, so
+    this is the sole evidence source for the is_industrial brick-kiln path (unlike
+    coal mines, which prefer GEM and fall back to OSM only where GEM has nothing).
+    man_made=kiln is typically mapped as a node, not a polygon -- point proximity
+    (nearest_brick_kiln_distance) is what makes this path fire for those, since
+    osm_industrial_tag only reflects polygon containment.
+    """
+    has_industrial = "industrial" in industrial_context.columns
+    has_man_made = "man_made" in industrial_context.columns
+    if not has_industrial and not has_man_made:
+        return gpd.GeoDataFrame({"geometry": []}, crs=industrial_context.crs or "EPSG:4326")
+    false_series = pd.Series(False, index=industrial_context.index)
+    is_brickyard = industrial_context["industrial"] == "brickyard" if has_industrial else false_series
+    is_kiln = industrial_context["man_made"] == "kiln" if has_man_made else false_series
+    return industrial_context[is_brickyard | is_kiln].copy()
+
+
 def worldcover_class(longitude: float, latitude: float, raster_path: str | Path) -> int | None:
     """Return the ESA WorldCover class at a point from a single known tile.
 

@@ -36,6 +36,13 @@ COAL_MINE_MAX_DIST_M = 3_000
 COAL_MINE_MIN_RECURRENCE = INDUSTRIAL_MIN_RECURRENCE
 COAL_MINE_OSM_MAX_DIST_M = 1_000
 COAL_MINE_OSM_MIN_RECURRENCE = 3
+# Brick-kiln path (is_industrial): OSM-only, no GEM equivalent (brick kilns aren't a
+# GEM facility type at all). industrial=brickyard/man_made=kiln are specific tags
+# (unlike industrial=mine, which is generic to any mine type), so trusted at the same
+# recurrence bar as a GEM match despite being OSM-sourced -- see is_industrial's
+# docstring.
+BRICK_KILN_MAX_DIST_M = 500
+BRICK_KILN_MIN_RECURRENCE = INDUSTRIAL_MIN_RECURRENCE
 # GEM mine-status values that mean "ground was never actually disturbed" -- excluded
 # even though every other status (operating, closed, mothballed, retired, ...) is
 # kept in scope deliberately (seam fires outlive active mining).
@@ -48,6 +55,7 @@ CONTRACT_COLUMNS = [
     "dist_to_flare_capable_m", "nearest_flare_facility_type",
     "dist_to_heat_industry_m", "nearest_heat_facility_type",
     "dist_to_coal_mine_m", "nearest_coal_source",
+    "dist_to_brick_kiln_m",
     "landcover_class", "recurrence_count", "first_seen", "last_seen",
     "is_anomalous", "label", "label_source",
 ]

@@ -156,6 +156,12 @@ def _nearest_feature_distance(detections: gpd.GeoDataFrame, features: gpd.GeoDat
     return nearest["_dist"].reindex(detections.index)
 
 
+def nearest_brick_kiln_distance(detections: gpd.GeoDataFrame, osm_brick_kilns: gpd.GeoDataFrame) -> pd.Series:
+    """Distance (m) to the nearest OSM industrial=brickyard/man_made=kiln feature,
+    per detection -- OSM-only, no GEM equivalent (see load_osm_brick_kilns)."""
+    return _nearest_feature_distance(detections, osm_brick_kilns)
+
+
 def nearest_coal_mine_distance(
     detections: gpd.GeoDataFrame,
     gem_coal_boundaries: gpd.GeoDataFrame,
