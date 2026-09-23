@@ -7,9 +7,14 @@ import pandas as pd
 import pytest
 
 import geopandas as gpd
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
-from backend.ingestion.context_sources import load_gem_facilities
+from backend.ingestion.context_sources import (
+    load_gem_coal_mine_boundaries,
+    load_gem_coal_mine_points,
+    load_gem_facilities,
+    load_osm_mines,
+)
 from backend.ingestion.firms_client import (
     INDIA_BBOX,
     INDIA_COUNTRY_CODE,
@@ -191,3 +196,69 @@ def test_finalize_parquet_raises_loudly_on_genuinely_bad_numeric_value(tmp_path:
     output_path = tmp_path / "out.parquet"
     with pytest.raises((ValueError, TypeError)):
         _finalize([chunk], date(2026, 1, 1), date(2026, 1, 1), output_path)
+
+
+def test_load_gem_coal_mine_boundaries_missing_file_returns_empty(tmp_path: Path):
+    result = load_gem_coal_mine_boundaries(tmp_path / "does-not-exist.geojson")
+    assert result.empty
+
+
+def test_load_gem_coal_mine_boundaries_loads_existing_file(tmp_path: Path):
+    boundaries = gpd.GeoDataFrame({"name": ["Jharia"]}, geometry=[box(86.0, 23.0, 86.1, 23.1)], crs="EPSG:4326")
+    path = tmp_path / "boundaries.geojson"
+    boundaries.to_file(path, driver="GeoJSON")
+    result = load_gem_coal_mine_boundaries(path)
+    assert len(result) == 1
+
+
+def _coal_mine_csv(tmp_path: Path) -> Path:
+    frame = pd.DataFrame({
+        "facility_id": ["m1", "m2", "m3", "m4"],
+        "facility_type": ["coal_mine", "coal_mine", "coal_mine", "oil_gas_power_plant"],
+        "status": ["operating", "closed", "proposed", "operating"],
+        "latitude": [23.7, 23.8, 23.9, 22.3],
+        "longitude": [86.4, 86.5, 86.6, 69.8],
+        "area_km2": [5.0, 3.0, 1.0, None],
+    })
+    path = tmp_path / "facilities.csv"
+    frame.to_csv(path, index=False)
+    return path
+
+
+def test_load_gem_coal_mine_points_missing_file_returns_empty(tmp_path: Path):
+    result = load_gem_coal_mine_points(tmp_path / "does-not-exist.csv")
+    assert result.empty
+
+
+def test_load_gem_coal_mine_points_filters_to_coal_mine_facility_type(tmp_path: Path):
+    result = load_gem_coal_mine_points(_coal_mine_csv(tmp_path))
+    assert len(result) == 3  # the oil_gas_power_plant row is excluded
+    assert set(result["facility_id"]) == {"m1", "m2", "m3"}
+
+
+def test_load_gem_coal_mine_points_keeps_closed_and_mothballed_but_drops_never_built(tmp_path: Path):
+    """Seam fires outlive active mining -- closed/mothballed mines must not be
+    silently dropped, only genuinely-never-built ones (proposed/cancelled/shelved)."""
+    path = _coal_mine_csv(tmp_path)
+    result = load_gem_coal_mine_points(path, excluded_statuses=("proposed", "cancelled", "shelved"))
+    assert set(result["facility_id"]) == {"m1", "m2"}  # operating + closed kept, proposed dropped
+    assert "closed" in set(result["status"])  # explicitly confirm closed wasn't excluded
+
+
+def test_load_osm_mines_filters_industrial_equals_mine():
+    frame = gpd.GeoDataFrame(
+        {
+            "industrial": ["mine", "refinery", "mine"],
+            "geometry": [Point(86.0, 23.0), Point(70.0, 22.0), Point(86.5, 23.5)],
+        },
+        crs="EPSG:4326",
+    )
+    result = load_osm_mines(frame)
+    assert len(result) == 2
+    assert set(result["industrial"]) == {"mine"}
+
+
+def test_load_osm_mines_missing_industrial_column_returns_empty():
+    frame = gpd.GeoDataFrame({"geometry": [Point(0, 0)]}, crs="EPSG:4326")
+    result = load_osm_mines(frame)
+    assert result.empty

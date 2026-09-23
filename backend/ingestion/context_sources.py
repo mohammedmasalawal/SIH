@@ -178,6 +178,58 @@ def load_gem_facilities(source: str | Path, cache_path: str | Path) -> gpd.GeoDa
     return facilities
 
 
+def load_gem_coal_mine_boundaries(path: str | Path) -> gpd.GeoDataFrame:
+    """GEM coal-mine boundary polygons, if the file exists -- an empty GeoDataFrame
+    otherwise (training.spatial_features.nearest_coal_mine_distance treats that as
+    "GEM has no boundary data," not an error, so callers don't need to check
+    existence themselves). No status filtering here -- do that on the CSV side via
+    load_gem_coal_mine_points; a boundaries file, if one exists, is assumed to
+    already be scoped to the mines worth carrying a polygon for.
+    """
+    path = Path(path)
+    if not path.exists():
+        return gpd.GeoDataFrame({"geometry": []}, crs="EPSG:4326")
+    return gpd.read_file(path)
+
+
+def load_gem_coal_mine_points(
+    facilities_csv: str | Path, excluded_statuses: Iterable[str] = ()
+) -> gpd.GeoDataFrame:
+    """facility_type == "coal_mine" rows from a GEM facilities CSV (see
+    load_gem_facilities), as points, keeping every status except
+    excluded_statuses (backend.config.GEM_COAL_STATUSES_EXCLUDED -- closed and
+    mothballed mines are deliberately kept: seam fires outlive active mining).
+    Returns an empty GeoDataFrame if the CSV has no coal_mine rows at all (as of
+    this writing, gem_facilities_india.csv has none), rather than raising --
+    nearest_coal_mine_distance treats that as "GEM has no point data either."
+    """
+    path = Path(facilities_csv)
+    if not path.exists():
+        return gpd.GeoDataFrame({"geometry": []}, crs="EPSG:4326")
+    frame = pd.read_csv(path)
+    if "facility_type" not in frame.columns:
+        return gpd.GeoDataFrame({"geometry": []}, crs="EPSG:4326")
+    mines = frame[frame["facility_type"] == "coal_mine"].copy()
+    excluded = {s.lower() for s in excluded_statuses}
+    if excluded and "status" in mines.columns:
+        mines = mines[~mines["status"].str.lower().isin(excluded)]
+    if mines.empty:
+        return gpd.GeoDataFrame({"geometry": []}, crs="EPSG:4326")
+    mines = mines.dropna(subset=["latitude", "longitude"])
+    return gpd.GeoDataFrame(mines, geometry=gpd.points_from_xy(mines["longitude"], mines["latitude"]), crs="EPSG:4326")
+
+
+def load_osm_mines(industrial_context: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """The industrial=mine subset of an already-extracted OSM industrial-context
+    frame (extract_osm_industrial_context's output) -- OSM's generic mining tag,
+    not coal-specific, used as nearest_coal_mine_distance's fallback source where
+    GEM has no coal-mine data at all.
+    """
+    if "industrial" not in industrial_context.columns:
+        return gpd.GeoDataFrame({"geometry": []}, crs=industrial_context.crs or "EPSG:4326")
+    return industrial_context[industrial_context["industrial"] == "mine"].copy()
+
+
 def worldcover_class(longitude: float, latitude: float, raster_path: str | Path) -> int | None:
     """Return the ESA WorldCover class at a point from a single known tile.
 

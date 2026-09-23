@@ -141,6 +141,80 @@ def nearest_industrial_distance(detections: gpd.GeoDataFrame, industrial: gpd.Ge
     return nearest["_dist"].reindex(detections.index)
 
 
+def _nearest_feature_distance(detections: gpd.GeoDataFrame, features: gpd.GeoDataFrame) -> pd.Series:
+    """Shared sjoin_nearest helper: distance (m) to the nearest row in `features`,
+    per detection, or all-null if `features` is empty. Same spatial-indexed
+    approach as nearest_industrial_distance/nearest_facility_distance, factored out
+    since nearest_coal_mine_distance needs it against three different feature sets.
+    """
+    if features.empty:
+        return pd.Series(None, index=detections.index, dtype="float64")
+    features.sindex
+    joined = gpd.sjoin_nearest(detections[["geometry"]], features[["geometry"]], distance_col="_dist")
+    joined = joined.reset_index(names="_detection_idx").sort_values("_dist")
+    nearest = joined.drop_duplicates(subset="_detection_idx", keep="first").set_index("_detection_idx")
+    return nearest["_dist"].reindex(detections.index)
+
+
+def nearest_coal_mine_distance(
+    detections: gpd.GeoDataFrame,
+    gem_coal_boundaries: gpd.GeoDataFrame,
+    gem_coal_points: gpd.GeoDataFrame,
+    osm_mines: gpd.GeoDataFrame,
+) -> tuple[pd.Series, pd.Series]:
+    """Distance (m) to the nearest coal-mine evidence, per detection, plus which
+    source supplied it ("gem", "osm", or NaN if neither has any data at all).
+
+    GEM (gem_coal_boundaries + gem_coal_points -- callers should pass coal_mine
+    facilities of every status except backend.config.GEM_COAL_STATUSES_EXCLUDED;
+    closed and mothballed mines are deliberately kept in scope, since seam fires
+    outlive active mining) is checked first and wins whenever it has ANY data at
+    all, regardless of whether OSM's match happens to be closer for a given
+    detection -- OSM's industrial=mine tag isn't coal-specific and carries no
+    status, so it's weaker evidence, used only as a fallback for detections GEM's
+    coal-mine data can't speak to (as of this writing, that's every detection: see
+    GEM_COAL_MINE_BOUNDARIES_PATH / GEM_COAL_MINE_CSV_PATH in backend/config.py --
+    neither file has real coal-mine content yet, so nearest_coal_source will read
+    "osm" everywhere until one or both are actually supplied).
+
+    gem_coal_points' distance is adjusted by each mine's area_km2, treating it as a
+    circle of that area centred on the point and measuring to the circle's edge
+    rather than its centre (effective_distance = max(0, point_distance - radius)) --
+    an approximation of "distance to the boundary" for mines GEM only has a point
+    for. gem_coal_boundaries, where available, is used directly (real boundary
+    geometry, no area adjustment needed). The smaller of the two per detection is
+    used as the GEM distance, which in practice prefers the boundary-based figure
+    whenever a mine has one (a real boundary is almost always tighter than a circle
+    approximation of the same mine).
+    """
+    gem_boundary_dist = _nearest_feature_distance(detections, gem_coal_boundaries)
+
+    if gem_coal_points.empty or "area_km2" not in gem_coal_points.columns:
+        gem_point_dist = pd.Series(None, index=detections.index, dtype="float64")
+    else:
+        area_km2 = pd.to_numeric(gem_coal_points["area_km2"], errors="coerce").fillna(0.0)
+        radius_m = np.sqrt(area_km2.to_numpy() * 1_000_000 / np.pi)  # circle-of-area_km2's radius, in metres
+        points_with_radius = gem_coal_points.assign(_radius_m=radius_m)
+        points_with_radius.sindex
+        joined = gpd.sjoin_nearest(
+            detections[["geometry"]], points_with_radius[["geometry", "_radius_m"]], distance_col="_dist"
+        )
+        joined = joined.reset_index(names="_detection_idx").sort_values("_dist")
+        nearest = joined.drop_duplicates(subset="_detection_idx", keep="first").set_index("_detection_idx")
+        point_dist = nearest["_dist"].reindex(detections.index)
+        radius = nearest["_radius_m"].reindex(detections.index)
+        gem_point_dist = (point_dist - radius).clip(lower=0)
+
+    gem_dist = pd.concat([gem_boundary_dist, gem_point_dist], axis=1).min(axis=1, skipna=True)
+    osm_dist = _nearest_feature_distance(detections, osm_mines)
+
+    dist = gem_dist.where(gem_dist.notna(), osm_dist)
+    source = pd.Series(pd.NA, index=detections.index, dtype="object")
+    source.loc[gem_dist.notna()] = "gem"
+    source.loc[gem_dist.isna() & osm_dist.notna()] = "osm"
+    return dist, source
+
+
 def nearest_facility_distance(
     detections: gpd.GeoDataFrame, facilities: gpd.GeoDataFrame, facility_types: tuple[str, ...]
 ) -> tuple[pd.Series, pd.Series]:

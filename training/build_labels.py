@@ -9,12 +9,20 @@ import geopandas as gpd
 import pandas as pd
 
 from backend.classification.rules import FLARE_CAPABLE_FACILITY_TYPES, HEAT_INDUSTRY_FACILITY_TYPES, apply_rules
-from backend.config import CONTRACT_COLUMNS, NATIONAL_PROJECTED_CRS
+from backend.config import (
+    CONTRACT_COLUMNS,
+    GEM_COAL_MINE_BOUNDARIES_PATH,
+    GEM_COAL_MINE_CSV_PATH,
+    GEM_COAL_STATUSES_EXCLUDED,
+    NATIONAL_PROJECTED_CRS,
+)
+from backend.ingestion.context_sources import load_gem_coal_mine_boundaries, load_gem_coal_mine_points, load_osm_mines
 from training.spatial_features import (
     add_recurrence_features,
     compute_is_anomalous,
     grid_keys,
     landcover_majority,
+    nearest_coal_mine_distance,
     nearest_facility_distance,
     nearest_industrial_distance,
     osm_industrial_tag,
@@ -36,6 +44,8 @@ def build_labels(
     output_csv: str | Path,
     *,
     worldcover_raster: str | Path | None = None,
+    coal_boundaries_path: str | Path = GEM_COAL_MINE_BOUNDARIES_PATH,
+    coal_facilities_csv: str | Path = GEM_COAL_MINE_CSV_PATH,
 ) -> pd.DataFrame:
     """firms_csv may be .csv or .parquet. industrial_geojson/facilities_geojson may be
     .geojson (regional caches, gpd.read_file) or .parquet (national-scale caches, e.g.
@@ -44,6 +54,13 @@ def build_labels(
     single-tile GeoTIFF path (regional) or a directory of tiles (national -- opened
     as a WorldCoverTileIndex, so only the tiles actually covering these detections
     are ever read, never a raster loaded whole for a handful of lookups).
+
+    coal_boundaries_path/coal_facilities_csv feed dist_to_coal_mine_m/
+    nearest_coal_source (see training.spatial_features.nearest_coal_mine_distance);
+    both default to backend.config's GEM paths and degrade gracefully to "no GEM
+    coal-mine data" if the files don't exist -- OSM's industrial=mine tag (read
+    from industrial_geojson itself) is always available as a fallback source
+    regardless.
 
     Distances are computed in NATIONAL_PROJECTED_CRS (EPSG:7755, an India-wide
     Lambert conformal conic) rather than EPSG:3857/Web Mercator -- Web Mercator's
@@ -71,6 +88,15 @@ def build_labels(
     result["nearest_flare_facility_type"] = flare_type.values
     result["dist_to_heat_industry_m"] = heat_dist.values
     result["nearest_heat_facility_type"] = heat_type.values
+
+    gem_coal_boundaries = load_gem_coal_mine_boundaries(coal_boundaries_path).to_crs(NATIONAL_PROJECTED_CRS)
+    gem_coal_points = load_gem_coal_mine_points(
+        coal_facilities_csv, excluded_statuses=GEM_COAL_STATUSES_EXCLUDED
+    ).to_crs(NATIONAL_PROJECTED_CRS)
+    osm_mines = load_osm_mines(industrial)  # industrial is already in NATIONAL_PROJECTED_CRS
+    coal_dist, coal_source = nearest_coal_mine_distance(detections, gem_coal_boundaries, gem_coal_points, osm_mines)
+    result["dist_to_coal_mine_m"] = coal_dist.values
+    result["nearest_coal_source"] = coal_source.values
 
     grid_lat, grid_lon = grid_keys(result)
     result = add_recurrence_features(result, grid_lat, grid_lon)

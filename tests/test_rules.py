@@ -3,7 +3,14 @@ from __future__ import annotations
 import pandas as pd
 
 from backend.classification.rules import classify, is_agricultural_burning, is_industrial, is_wildfire
-from backend.config import GAS_FLARE_MAX_DIST_M, GAS_FLARE_MIN_RECURRENCE
+from backend.config import (
+    COAL_MINE_MAX_DIST_M,
+    COAL_MINE_MIN_RECURRENCE,
+    COAL_MINE_OSM_MAX_DIST_M,
+    COAL_MINE_OSM_MIN_RECURRENCE,
+    GAS_FLARE_MAX_DIST_M,
+    GAS_FLARE_MIN_RECURRENCE,
+)
 
 
 def test_ambiguous_context_is_unknown():
@@ -124,3 +131,72 @@ def test_high_recurrence_refinery_polygon_far_from_any_gem_facility_is_industria
         "recurrence_count": 80,
     })
     assert classify(row) == "industrial"
+
+
+def _no_other_path_row(**overrides) -> pd.Series:
+    """Base row far from every other is_industrial path, so only the coal-mine
+    path under test can fire -- no landcover_class either, so agricultural
+    burning/wildfire can't fire and manufacture a conflict."""
+    base = {
+        "dist_to_industrial_m": 50_000, "osm_industrial_tag": None,
+        "dist_to_heat_industry_m": 50_000, "dist_to_flare_capable_m": 50_000,
+        "dist_to_coal_mine_m": None, "nearest_coal_source": None,
+        "recurrence_count": 0,
+    }
+    base.update(overrides)
+    return pd.Series(base)
+
+
+def test_gem_coal_mine_within_threshold_is_industrial():
+    row = _no_other_path_row(
+        dist_to_coal_mine_m=COAL_MINE_MAX_DIST_M, nearest_coal_source="gem",
+        recurrence_count=COAL_MINE_MIN_RECURRENCE,
+    )
+    assert classify(row) == "industrial"
+
+
+def test_gem_coal_mine_just_over_threshold_is_not_industrial():
+    row = _no_other_path_row(
+        dist_to_coal_mine_m=COAL_MINE_MAX_DIST_M + 1, nearest_coal_source="gem",
+        recurrence_count=COAL_MINE_MIN_RECURRENCE,
+    )
+    assert classify(row) == "unknown"
+
+
+def test_gem_coal_mine_below_recurrence_bar_is_not_industrial():
+    row = _no_other_path_row(
+        dist_to_coal_mine_m=100, nearest_coal_source="gem",
+        recurrence_count=COAL_MINE_MIN_RECURRENCE - 1,
+    )
+    assert classify(row) == "unknown"
+
+
+def test_osm_coal_mine_within_tighter_threshold_and_recurrence_is_industrial():
+    row = _no_other_path_row(
+        dist_to_coal_mine_m=COAL_MINE_OSM_MAX_DIST_M, nearest_coal_source="osm",
+        recurrence_count=COAL_MINE_OSM_MIN_RECURRENCE,
+    )
+    assert classify(row) == "industrial"
+
+
+def test_osm_coal_mine_meets_gem_recurrence_but_not_osms_higher_bar():
+    """OSM's industrial=mine tag is weaker evidence than a GEM match -- it needs
+    COAL_MINE_OSM_MIN_RECURRENCE, not just the lower GEM bar, even at close range."""
+    row = _no_other_path_row(
+        dist_to_coal_mine_m=100, nearest_coal_source="osm",
+        recurrence_count=COAL_MINE_MIN_RECURRENCE,  # meets GEM's bar, not OSM's higher one
+    )
+    assert COAL_MINE_OSM_MIN_RECURRENCE > COAL_MINE_MIN_RECURRENCE
+    assert classify(row) == "unknown"
+
+
+def test_osm_coal_mine_within_gem_range_but_beyond_osm_range_is_not_industrial():
+    """GEM's generous COAL_MINE_MAX_DIST_M radius does not extend to OSM-sourced
+    evidence -- an OSM match must clear the tighter COAL_MINE_OSM_MAX_DIST_M."""
+    distance = (COAL_MINE_OSM_MAX_DIST_M + COAL_MINE_MAX_DIST_M) / 2
+    assert COAL_MINE_OSM_MAX_DIST_M < distance < COAL_MINE_MAX_DIST_M
+    row = _no_other_path_row(
+        dist_to_coal_mine_m=distance, nearest_coal_source="osm",
+        recurrence_count=COAL_MINE_OSM_MIN_RECURRENCE,
+    )
+    assert classify(row) == "unknown"

@@ -5,6 +5,10 @@ from __future__ import annotations
 import pandas as pd
 
 from backend.config import (
+    COAL_MINE_MAX_DIST_M,
+    COAL_MINE_MIN_RECURRENCE,
+    COAL_MINE_OSM_MAX_DIST_M,
+    COAL_MINE_OSM_MIN_RECURRENCE,
     CROPLAND_LANDCOVER_TERMS,
     GAS_FLARE_MAX_DIST_M,
     GAS_FLARE_MIN_RECURRENCE,
@@ -49,6 +53,13 @@ def _osm_industrial_tag(row: pd.Series) -> str:
     return str(value).lower()
 
 
+def _coal_source(row: pd.Series) -> str:
+    value = row.get("nearest_coal_source")
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).lower()
+
+
 def is_gas_flare(row: pd.Series) -> bool:
     """Gas flare requires proximity to a flare-capable GEM facility -- no polygon-only path.
 
@@ -86,15 +97,35 @@ def is_industrial(row: pd.Series) -> bool:
     GAS_FLARE_MAX_DIST_M of a flare-capable GEM facility keeps that
     distance-confirmed gas-flare call rather than being forced into an
     artificial conflict with the (weaker) polygon-only signal.
+
+    Path 4 is a dedicated coal-mine distance path, added after the 12-month
+    national pull showed Jharkhand and West Bengal (coal-belt states) with
+    unknown rates far above the national baseline -- HEAT_INDUSTRY_FACILITY_TYPES
+    already lists coal_mine, but gem_facilities_india.csv has zero coal_mine rows,
+    so dist_to_heat_industry_m never actually saw one. dist_to_coal_mine_m /
+    nearest_coal_source (training.spatial_features.nearest_coal_mine_distance) are
+    a separate GEM-boundary/point-plus-area-scaled-first, OSM-industrial=mine-
+    fallback signal instead. A GEM-sourced match is trusted at COAL_MINE_MAX_DIST_M
+    with the same recurrence bar as the rest of this function; an OSM-sourced match
+    -- weaker evidence, since the tag isn't coal-specific and carries no status --
+    needs to be closer (COAL_MINE_OSM_MAX_DIST_M) and more persistent
+    (COAL_MINE_OSM_MIN_RECURRENCE) to count. This path doesn't touch flare-related
+    distances at all, so it can't create a new is_gas_flare overlap.
     """
     heat_distance = _number(row, "dist_to_heat_industry_m")
     flare_distance = _number(row, "dist_to_flare_capable_m")
     industrial_distance = _number(row, "dist_to_industrial_m")
+    coal_distance = _number(row, "dist_to_coal_mine_m")
+    coal_source = _coal_source(row)
     recurrence = _number(row, "recurrence_count") or 0
     near_heat_industry = heat_distance is not None and heat_distance <= INDUSTRIAL_HEAT_MAX_DIST_M
     near_flare_candidate = flare_distance is not None and flare_distance <= GAS_FLARE_MAX_DIST_M
     inside_osm_industrial = industrial_distance is not None and industrial_distance <= INDUSTRIAL_POLYGON_TOLERANCE_M
     near_heat_facility_500m = heat_distance is not None and heat_distance <= INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M
+    near_gem_coal_mine = coal_source == "gem" and coal_distance is not None and coal_distance <= COAL_MINE_MAX_DIST_M
+    near_osm_coal_mine = (
+        coal_source == "osm" and coal_distance is not None and coal_distance <= COAL_MINE_OSM_MAX_DIST_M
+    )
 
     # near_flare_candidate uses the same threshold as is_gas_flare's distance
     # rule, so this path structurally can never overlap with is_gas_flare.
@@ -103,6 +134,10 @@ def is_industrial(row: pd.Series) -> bool:
     if recurrence == 1 and (inside_osm_industrial or near_heat_facility_500m):
         return True
     if recurrence >= INDUSTRIAL_MIN_RECURRENCE and bool(_osm_industrial_tag(row)) and not is_gas_flare(row):
+        return True
+    if near_gem_coal_mine and recurrence >= COAL_MINE_MIN_RECURRENCE:
+        return True
+    if near_osm_coal_mine and recurrence >= COAL_MINE_OSM_MIN_RECURRENCE:
         return True
     return False
 

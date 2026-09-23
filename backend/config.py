@@ -24,6 +24,22 @@ INDUSTRIAL_POLYGON_TOLERANCE_M = 1
 NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M = 2_000
 CROPLAND_LANDCOVER_TERMS = ("cropland", "crop", "agriculture", "40")
 NATURAL_LANDCOVER_TERMS = ("forest", "shrub", "grass", "woodland", "10", "20", "30")
+# Coal-mine path (is_industrial): GEM (boundary-preferred, point+area-scaled fallback)
+# is checked first and trusted at a generous radius -- mining leases are large, and
+# seam fires outlive active mining, so GEM_COAL_STATUSES_EXCLUDED below keeps closed/
+# mothballed mines in scope and only drops mines that were never actually dug. OSM's
+# industrial=mine tag is a supplementary fallback used only where GEM has no coal-mine
+# data at all (nationally, today: always -- see GEM_COAL_MINE_BOUNDARIES_PATH /
+# GEM_COAL_MINE_CSV_PATH) -- it isn't coal-specific and carries no status, so it's
+# trusted at a tighter radius and higher recurrence than a GEM match.
+COAL_MINE_MAX_DIST_M = 3_000
+COAL_MINE_MIN_RECURRENCE = INDUSTRIAL_MIN_RECURRENCE
+COAL_MINE_OSM_MAX_DIST_M = 1_000
+COAL_MINE_OSM_MIN_RECURRENCE = 3
+# GEM mine-status values that mean "ground was never actually disturbed" -- excluded
+# even though every other status (operating, closed, mothballed, retired, ...) is
+# kept in scope deliberately (seam fires outlive active mining).
+GEM_COAL_STATUSES_EXCLUDED = ("proposed", "announced", "cancelled", "shelved")
 
 # --- Hand-off CSV contract (training/build_labels.py, backend/classification/features.py) ---
 CONTRACT_COLUMNS = [
@@ -31,6 +47,7 @@ CONTRACT_COLUMNS = [
     "confidence", "daynight", "dist_to_industrial_m", "osm_industrial_tag",
     "dist_to_flare_capable_m", "nearest_flare_facility_type",
     "dist_to_heat_industry_m", "nearest_heat_facility_type",
+    "dist_to_coal_mine_m", "nearest_coal_source",
     "landcover_class", "recurrence_count", "first_seen", "last_seen",
     "is_anomalous", "label", "label_source",
 ]
@@ -57,6 +74,15 @@ INDIA_BOUNDARY_PATH = ROOT_DIR / "data" / "external" / "boundaries" / "india_sta
 MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model.pkl"
 EVAL_SUMMARY_PATH = ROOT_DIR / "training" / "artifacts" / "eval_summary.json"
 GEM_FACILITIES_PATH = ROOT_DIR / "data" / "external" / "gem_facilities_india.csv"
+# Neither exists yet as of this writing -- GEM's Global Coal Mine Tracker isn't a
+# direct-downloadable file (gated behind a form on their site, no public URL), and
+# gem_facilities_india.csv (GEM_FACILITIES_PATH above) currently has zero
+# facility_type == "coal_mine" rows. nearest_coal_mine_distance handles both being
+# absent/empty gracefully -- it just means every detection's coal-mine evidence comes
+# from OSM's industrial=mine tag (backend.ingestion.context_sources) until one or
+# both of these are actually supplied.
+GEM_COAL_MINE_BOUNDARIES_PATH = ROOT_DIR / "data" / "external" / "gem_coal_mine_boundaries_india.geojson"
+GEM_COAL_MINE_CSV_PATH = GEM_FACILITIES_PATH  # facility_type == "coal_mine" rows within it
 GOLD_SAMPLE_PATH = ROOT_DIR / "training" / "data" / "gold_sample.csv"
 GOLD_HOLDOUT_PATH = ROOT_DIR / "training" / "data" / "gold_holdout.csv"
 # Every file whose cells must be excluded from training -- gold_sample.csv drove the
