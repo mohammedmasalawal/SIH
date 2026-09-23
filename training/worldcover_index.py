@@ -98,6 +98,16 @@ class WorldCoverTileIndex:
         Opens only the covering tile and reads only the small window overlapping
         the buffer (rasterio windowed read via rasterio.windows.from_bounds) --
         never the tile's full extent, regardless of tile size.
+
+        For more than a handful of points, use majority_class_in_buffer_batch
+        instead: calling this once per point (as an earlier version of
+        build_labels.py did, in a plain per-row loop) opens and closes a fresh
+        rasterio/GDAL dataset handle on every single call -- at ~1.09M calls
+        (one national quarter's worth of detections) GDAL's internal raster block
+        cache eventually hit rasterio.errors.RasterioIOError /
+        CPLE_OutOfMemoryError failing to allocate a single 1MB block, ~2.5 hours
+        into the run. Grouping by tile and opening each dataset once fixes both
+        the leak and the redundant per-call open overhead.
         """
         tile_path = self.tile_for_point(longitude, latitude)
         if tile_path is None:
@@ -115,3 +125,40 @@ class WorldCoverTileIndex:
                 return None
             counts = np.bincount(values.astype(np.int64))
             return int(np.argmax(counts))
+
+    def majority_class_in_buffer_batch(
+        self, longitudes: pd.Series, latitudes: pd.Series, buffer_m: float = 375
+    ) -> pd.Series:
+        """majority_class_in_buffer for many points at once, grouped by covering
+        tile so each tile's rasterio/GDAL dataset is opened exactly once (not once
+        per point -- see majority_class_in_buffer's docstring for why that matters
+        at scale) and the buffer reprojection is vectorised per tile group instead
+        of rebuilt from a 1-element GeoSeries on every call.
+        """
+        points = gpd.GeoDataFrame(
+            {"_lon": longitudes.to_numpy(), "_lat": latitudes.to_numpy()},
+            geometry=gpd.points_from_xy(longitudes, latitudes),
+            index=longitudes.index,
+            crs="EPSG:4326",
+        )
+        joined = gpd.sjoin(points, self.index[["geometry", "path"]], how="left", predicate="within")
+        result = pd.Series(pd.NA, index=longitudes.index, dtype="object")
+
+        for path, group in joined.dropna(subset=["path"]).groupby("path"):
+            with rasterio.open(path) as raster:
+                nodata = raster.nodata
+                points_3857 = gpd.GeoSeries(
+                    gpd.points_from_xy(group["_lon"], group["_lat"]), crs="EPSG:4326"
+                ).to_crs("EPSG:3857")
+                buffered = points_3857.buffer(buffer_m).to_crs(raster.crs)
+                for idx, buffer_geom in zip(group.index, buffered):
+                    window = from_bounds(*buffer_geom.bounds, transform=raster.transform)
+                    data = raster.read(1, window=window, boundless=True, fill_value=nodata or 0)
+                    values = data[data != 0]
+                    if nodata is not None:
+                        values = values[values != nodata]
+                    if values.size == 0:
+                        continue
+                    counts = np.bincount(values.astype(np.int64))
+                    result.loc[idx] = int(np.argmax(counts))
+        return result

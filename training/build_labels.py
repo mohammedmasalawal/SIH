@@ -78,10 +78,9 @@ def build_labels(
 
     if worldcover_raster is not None and Path(worldcover_raster).is_dir():
         tile_index = WorldCoverTileIndex(worldcover_raster)
-        result["landcover_class"] = [
-            tile_index.majority_class_in_buffer(lon, lat)
-            for lon, lat in zip(firms["longitude"], firms["latitude"])
-        ]
+        result["landcover_class"] = tile_index.majority_class_in_buffer_batch(
+            firms["longitude"], firms["latitude"]
+        ).values
     elif worldcover_raster is not None:
         result["landcover_class"] = landcover_majority(detections.geometry, worldcover_raster).values
     else:

@@ -95,3 +95,63 @@ def test_majority_class_in_buffer_reads_only_a_window(tmp_path: Path):
 def test_majority_class_in_buffer_returns_none_outside_any_tile(two_tile_dir: Path):
     index = WorldCoverTileIndex(two_tile_dir)
     assert index.majority_class_in_buffer(0.0, 0.0) is None
+
+
+@pytest.fixture
+def two_fine_tile_dir(tmp_path: Path) -> Path:
+    """Two adjacent fine-resolution (~55m/pixel) tiles, each large enough that a
+    375m buffer stays well clear of both the tile edge and the raster's own edge."""
+    tile_dir = tmp_path / "fine_tiles"
+    tile_dir.mkdir()
+    pixel = 0.0005
+    for name, sw_lon, sw_lat, fill_value in [
+        ("ESA_WorldCover_10m_2021_v200_N21E069_Map.tif", 69.0, 21.0, 50),
+        ("ESA_WorldCover_10m_2021_v200_N21E072_Map.tif", 72.0, 21.0, 40),
+    ]:
+        transform = from_origin(sw_lon, sw_lat + 0.15, pixel, pixel)
+        data = np.full((300, 300), fill_value, dtype="uint8")
+        with rasterio.open(
+            tile_dir / name, "w", driver="GTiff", height=300, width=300, count=1, dtype="uint8",
+            crs="EPSG:4326", transform=transform, nodata=0,
+        ) as dst:
+            dst.write(data, 1)
+    return tile_dir
+
+
+def test_majority_class_in_buffer_batch_matches_single_point_method(two_fine_tile_dir: Path):
+    index = WorldCoverTileIndex(two_fine_tile_dir)
+    longitudes = pd.Series([69.05, 72.05, 69.06], index=["a", "b", "c"])
+    latitudes = pd.Series([21.05, 21.05, 21.06], index=["a", "b", "c"])
+
+    batched = index.majority_class_in_buffer_batch(longitudes, latitudes)
+    assert batched.loc["a"] == index.majority_class_in_buffer(69.05, 21.05)
+    assert batched.loc["b"] == index.majority_class_in_buffer(72.05, 21.05)
+    assert batched.loc["c"] == index.majority_class_in_buffer(69.06, 21.06)
+    assert batched.loc["a"] == 50 and batched.loc["c"] == 50  # tile A
+    assert batched.loc["b"] == 40  # tile B
+
+
+def test_majority_class_in_buffer_batch_opens_each_tile_at_most_once(two_fine_tile_dir: Path, monkeypatch):
+    """Regression guard for the real bug this batch method fixes: an earlier
+    per-row loop opened a fresh rasterio dataset for every single detection, which
+    leaked enough GDAL state to crash with an out-of-memory error ~2.5 hours into a
+    ~1.09M-row national run. 10 points across 2 tiles must open rasterio.open at
+    most twice, not up to 10 times."""
+    import rasterio as rasterio_module
+
+    index = WorldCoverTileIndex(two_fine_tile_dir)
+    open_calls = []
+    real_open = rasterio_module.open
+
+    def counting_open(path, *args, **kwargs):
+        open_calls.append(str(path))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("training.worldcover_index.rasterio.open", counting_open)
+
+    longitudes = pd.Series([69.05 + 0.001 * i for i in range(5)] + [72.05 + 0.001 * i for i in range(5)])
+    latitudes = pd.Series([21.05] * 10)
+    index.majority_class_in_buffer_batch(longitudes, latitudes)
+
+    assert len(open_calls) <= 2
+    assert len(set(open_calls)) == len(open_calls)  # each tile opened once, not reopened per point
