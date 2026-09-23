@@ -53,7 +53,28 @@ That means `gold_sample.csv` fed back into a rule change and can no longer serve
 
 **The ML model must not train on either file.** `training/train_model.py`'s gold-cell exclusion currently only reads `gold_sample.csv` (`GOLD_SAMPLE_PATH` in `backend/config.py`) — it does not yet know about `gold_holdout.csv`, and needs to before any training run happens against a `labeled_hotspots.csv` built after this holdout was drawn, or `gold_holdout.csv`'s cells (and therefore its usefulness as an independent check) will leak into training the same way an unexcluded `gold_sample.csv` cell would.
 
+#### Pre-fix independent evaluation (`gold_holdout_verified.csv`, 15 rows, reviewed 2026-09-23)
+
+Before the OSM flare-proximity fix described below, blind review of `gold_holdout.csv` against the rules then in `rules.py` (GEM-distance-only `is_gas_flare`, no OSM flare-proximity path) gave:
+
+- **Rules**: 11/12 = 91.7% agreement on decided rows (excludes 3 `uncertain` rows), 11/15 = 73.3% including them.
+- **Model** (`model_400k.pkl`): 10/12 = 83.3% agreement on decided rows, 10/15 = 66.7% including them.
+
+Both misclassified the one verified `gas flare` row in the set (H014) as `industrial` — the GEM-distance rule doesn't fire because the nearest flare-capable GEM facility point is farther than `GAS_FLARE_MAX_DIST_M` from the pin, even though a flare stack is visible ~150-200m away in the imagery. This is the independent evidence (not `gold_sample.csv`, which already fed back into a prior fix — see below) that motivated the flare-vs-process-heat investigation below. It did not motivate a rule change: see "Five ways to separate a flare from refinery process heat, none of which worked" below for why.
+
 `daynight` is never used by any labelling rule, deliberately — it's kept as an independent sanity check (real agricultural burning should skew daytime, flares and industrial heat should skew nighttime; that's how this redesign was validated, not how it was built).
+
+#### Five ways to separate a flare from refinery process heat, none of which worked
+
+`is_gas_flare` still requires GEM-distance proximity to a flare-capable facility, with no polygon or proximity fallback — despite `gold_verified1.csv`/`gold_holdout_verified.csv` review turning up real, visually-confirmed flares this rule misses (see above). Five candidate signals were tested against the verified gold rows to find something better, and none separated verified `gas flare` rows from verified `industrial` rows well enough to justify a rule change:
+
+1. **GEM facility distance** (current rule) — 0/11 recall on `gold_verified1.csv`'s verified flares: `dist_to_flare_capable_m` is 1,938-3,416m for every one of them, because the GEM point is the facility's registered centroid, not the flare stack itself.
+2. **OSM `industrial=refinery` polygon** (the old, removed path) — recovers 7/11 flares via `recurrence>=2`, but at the cost of *lower* overall rule agreement than the current GEM-only rule on both `gold_verified1.csv` (39.1%/48.2% vs 55.1%/67.9%, overall/decided) and `gold_holdout_verified.csv` (66.7%/83.3% vs 73.3%/91.7%) — it over-calls `gas flare` on plain refinery activity, the exact problem that got it removed originally.
+3. **OSM `man_made=flare` node proximity (500m)** — 7/11 true positives, but 17/45 verified-`industrial` rows also fall within 500m of a mapped flare node (worse than 2:1 false-positive ratio); `recurrence_count` doesn't separate the two groups (both span 1-10).
+4. **VIIRS `bright_ti4`/`bright_ti5`/`frp`/`daynight`** — gas flare's `bright_ti4` median is ~16K higher (326.5 vs 310.0K) but the distributions overlap heavily; `bright_ti5`, `frp`, and `daynight` show no separation at all; I4-band saturation (367.0K ceiling) hits both groups at similarly low rates (9.1% vs 2.2%, n too small to trust).
+5. **Sentinel-2 SWIR (B12) hot-spot check** (`training/data/swir_flare_check_results.json`, method in git history) — nearest 2-3 clear L2A scenes per point, 380m box at 20m resolution, hot pixel = local robust outlier (>median + 4×MAD) and B12 > 0.30. Hit rate 63.6% (flare) vs 55.6% (industrial), hit distance 151m/144m mean vs 144m/152m mean — no separation, and the two rates aren't statistically distinguishable at n=11.
+
+The common failure mode across all five: a 375m VIIRS pixel over a dense refinery complex (Reliance Jamnagar, Nayara Vadinar) contains both a flare stack *and* generic process heat (pipe racks, tank farms, FCC units, substations) within the same footprint or within a few hundred metres of it. Every distance/brightness/SWIR signal tested picks up the process heat as readily as the flare, because at this resolution they usually aren't spatially or spectrally distinct. `is_gas_flare` stays GEM-distance-only rather than adding a signal that trades false negatives (real flares called `industrial`) for a worse rate of false positives (plain refinery activity called `gas flare`) — the latter was the original, specifically-diagnosed failure mode that motivated removing the refinery-polygon path in the first place.
 
 ### Contract column changes since the original handoff schema
 

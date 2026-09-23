@@ -29,6 +29,28 @@ OSM_TARGET_TAGS: dict[str, set[str] | None] = {
     "power": {"plant"},
 }
 
+RENEWABLE_POWER_PLANT_SOURCES = {"solar", "wind"}
+
+
+def exclude_renewable_power_plants(industrial: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Drop power=plant features tagged plant:source=solar/wind from industrial context.
+
+    A solar or wind farm's OSM polygon usually carries no explicit industrial=*
+    tag of its own -- it's captured only because power=plant is one of
+    OSM_TARGET_TAGS -- so without this filter it's swept into the generic
+    "industrial context" bucket (osm_industrial_tag defaults to "yes",
+    dist_to_industrial_m=0.0 inside it) even though there's no combustion/heat
+    source there. Gold-set review found three otherwise-unexplained `industrial`
+    weak labels (recurrence 1-3, nearest real heat/flare facility 30-40km away)
+    that were pins sitting inside solar-farm polygons for exactly this reason.
+    """
+    if "power" not in industrial.columns or "plant:source" not in industrial.columns:
+        return industrial
+    is_renewable_plant = (industrial["power"] == "plant") & (
+        industrial["plant:source"].isin(RENEWABLE_POWER_PLANT_SOURCES)
+    )
+    return industrial.loc[~is_renewable_plant].copy()
+
 
 def _matched_tag_key(tags) -> str | None:
     """The first OSM_TARGET_TAGS key this element's tags satisfy, or None."""

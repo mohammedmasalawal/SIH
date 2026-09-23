@@ -1,36 +1,36 @@
 sample_id,verified_label,structure_seen,confidence,verified_date
 G001,industrial,"perimeter ground off Sir PN Rd inside Reliance complex; coke yard W, C2 warehouse/paved yard N, dark stockpile S, fields E; no flare stack at pin",low,2026-09-20
 G002,uncertain,"open scrub with scattered bushes, no structures; cultivated plots ~150m E and SW; SWIR 04-Jan vs 19-Jan unchanged, no burn scar; nbr_before 0.09 so ground already bare",low,2026-09-20
-G003,industrial,"W edge of Reliance SEZ beside Sir PN Rd; open/scrub ground at pin, SEZ PCG process units and substation ~300-400m E; no flare stack at pin",low,2026-09-20
+G003,gas flare ,pin on open ground at W edge of Reliance SEZ; probable elevated flare in fenced sterile enclosure ~250-300m E flare header with expansion loops scorch at base; terraced mound S,medium,2026-09-20
 G004,industrial,"S edge of Reliance SEZ tank farm; ~8 bunded storage tanks 100-300m N, pipe racks/process row immediately S; no flare stack in frame",medium,2026-09-20
 G006,gas flare,"Reliance refinery process area; ZFCCU/Alky (cat cracker + alkylation) O&M office ~200m N, dense process plant with air-cooler banks S, RRTF rail gantry SE",medium,2026-09-20
 G009,industrial,"roof of large warehouse/covered storage N of C2 warehouse, inside Reliance petrochem area; LLDPE plant and PCC ~400m N; no stack or process unit at pin",low,2026-09-20
-G011,industrial,"scrub strip inside Reliance SEZ; bunded process/piping installation ~80m S, tanks and circular basins (possible treatment) ~200m E; no stack at pin",low,2026-09-20
+G011,gas flare ,elevated flare on red/white-banded lattice derrick ~100m E of pin in fenced sterile enclosure; flare header with expansion loops; scorched ground NE of derrick; pin on scrub outside fence,high,2026-09-20
 G013,uncertain,"solar PV farm, panel rows; small inverter/transformer block ~30m S of pin; farmland surrounding; no combustion source",medium,2026-09-20
 G014,industrial,"Reliance refinery core process area; FCC 400-10 substation ~150m SE, CFP substation ~250m NW, crude 3&4 units S; dense process plant, columns and pipe racks at pin",high,2026-09-20
-G017,industrial,"E edge of PX-04 Reliance J3 aromatics unit; spheres and tanks ~150m SW, PP bagging/ZPP load office ~250m N, ETP substation S",medium,2026-09-20
+G017,gas flare,road at NW corner of J3 flare plot beside PX-04 sheds; elevated flare on lattice derrick (same as H014) ~300-350m SE; flare header loops E; process buildings immediately W ,medium,2026-09-20
 G018,industrial,"Reliance DTA refinery process core; DTA Coker ~400m S, DTA-HT hydrotreater ~250m E, dense columns and pipe racks at pin",high,2026-09-20
 G022,industrial,"Reliance DTA process core; FCC regenerator ~150m E, PRU plant ~400m N, DTA-HT SE; dense process plant and pipe racks at pin",high,2026-09-20
 G023,industrial,"bare cleared plot inside Reliance complex, W of C2 warehouse; pipe runs ~100m N, rail line W; nothing at pin",low,2026-09-20
 G024,uncertain,"laydown/scrap yard at Timbdi with containers, stacked pipe and materials; pipeline corridor runs NW and SE of pin; no process plant or stack",low,2026-09-20
 G026,industrial,"S boundary road of Reliance refinery tank farm; large floating-roof tanks 100-300m N, LPG spheres NE, RRTF substation E; no process unit or stack at pin",medium,2026-09-20
 G027,industrial,"road between ETP (clarifiers, ETP 400-22 substation ~250m NE) and DTA Cokeyard; black petcoke stockpile ~300m SE, two large circular silos/pits immediately S",medium,2026-09-20
-G028,industrial,"empty paved plot inside Reliance J3 area; tanks and dome ~200m W, ETP 400-23 substation and clarifiers ~250m S, dark lined basin/pond NE; nothing at pin",low,2026-09-20
-G033,industrial,"landscaped strip between blocks in Reliance SEZ PCG; treatment basins/clarifiers ~150m SW, SEZ PCG office ~200m NE, process plant with air-cooler banks E",low,2026-09-20
+G028,gas flare ,pin in J3 flare sterile zone (large empty paved plot); elevated flare on lattice derrick ~200m NNE (same flare as H014) flare header loops N; tanks W ETP 400-23 substation S,high,2026-09-20
+G033,gas flare,landscaped strip in SEZ PCG; elevated flare on lattice derrick (same as previous row) ~200m NW of pin; treatment basins SW SEZ PCG office NE process blocks E,high,2026-09-20
 G034,gas flare,"The complex central structures shown in the previous image correspond to an FCC (Fluid Catalytic Cracking) unit zone, crucial for upgrading heavy distillates into lighter, high-value products like gasoline and LPG.",high,2026-09-20
 G037,uncertain,roadside beside above-ground pipeline corridor with expansion loops ~80m NE; ISOM O&M building ~400m NE; scrub and small structures around pin; no stack or process unit,low,2026-09-20
 G038,uncertain,"Digvijaygram residential township at Sikka; houses, shops, temples, gram panchayat; DCC jetty custom post ~400m NW; cement works off-frame E; no heat source at pin",low,2026-09-20
-G040,uncertain,"EPGL (Essar Power) site near Kajurda; gridded empty plots/township layout at pin, EPGL fire station ~400m SE, colony SW, large shed NE; no process plant or stack visible",low,2026-09-20
+G040,gas flare ,empty township plot grid at Kajurda; Nayara elevated flare (lattice derrick in circular sterile zone) ~550m E covered storage building N; no other heat source in frame,medium,2026-09-20
 G042,uncertain,Airking solar park,high,2026-09-20
 G044,industrial,"bare plot inside Reliance DTA ETP compound; clarifiers and filter beds ~200m W, ETP 400-22 substation ~150m SW, covered/greenhouse structures NE, lagoon SE, Cokeyard S",low,2026-09-20
-G045,uncertain,ancient Roman or Byzantine basilica or public assembly hall.,low,2026-09-20
+G045,uncertain, Sikka village buildings among trees; Sikka beach and shore NW DCC jetty custom post ~400m SW Shree Digvijay Cement ~600m SE Singh Shipyard N; no heat source at pin,low,2026-09-20
 G046,industrial,"petrochemical refinery complex, specifically focusing on processing infrastructure within the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India.",high,2026-09-20
 G047,uncertain,"corner of large bare/compacted plot at Timbdi; small buildings and yards W, pipeline corridor ~150m E, PIT ROOM marker SW; no process plant or stack",low,2026-09-20
 G048,industrial,pipeline at industrial area,high,2026-09-20
-G051,industrial,"Reliance J3 storage area; large dome tank immediately W of pin, tank cluster ~200m N, PX-04 unit ~350m NW, ETP 400-23 substation and clarifiers SE",low,2026-09-20
+G051,gas flare,beside large dome tank in J3 tank block; elevated flare on lattice derrick (same as H014) ~250-300m NE; PX-04 unit NW ETP 400-23 substation SE,medium,2026-09-20
 G054,industrial,"air-cooled heat exchangers (fin-fans) at the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India",high,2026-09-20
 G056,industrial,"Nayara Vadinar refinery process area; ISOM unit ~400m NW, air-cooler/exchanger banks immediately SE and NE of pin, pipe racks throughout; no flare stack visible in frame",medium,2026-09-20
-G061,industrial,"W boundary road of Reliance SEZ PCG; scrub W of pin, treatment basins ~100m SE, SEZ PCG office ~250m NE, air-cooler banks in blocks E; no stack at pin",low,2026-09-20
+G061,gas flare ,elevated flare on red/white lattice derrick in fenced enclosure ~100-150m NE of pin; flare header with expansion loops; long shadow NW; treatment basins SE,high,2026-09-20
 G070,industrial,"N edge of Reliance DTA Cokeyard; black petcoke stockpile immediately S and E of pin, ETP clarifiers and 400-22 substation ~150m N; no stack or process unit",medium,2026-09-20
 G071,industrial,"corner of admin/office building (RCB) inside Reliance DTA; canteen ~150m N, parking S, landscaping around; process plant with air-cooler banks 200-300m N and E; no heat source at pin",low,2026-09-20
 G072,industrial,"open service road or assembly courtyard situated directly between two major processing blocks at the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India.",low,2026-09-20
@@ -42,7 +42,7 @@ G083,industrial,"on PX-04 Reliance J3 aromatics unit; pipe racks and process str
 G084,industrial,"scrub and tracks just outside Nayara refinery W boundary; ISOM O&M building ~250m SE, pipeline corridor NE, small piping/lattice installation ~150m S, refinery plant E",low,2026-09-20
 G086,industrial,Empty plor in naraya energy power plant,low,2026-09-20
 G091,industrial,near substation 700 - 30 in reliance refinary,low,2026-09-20
-G097,industrial,"Nayara site at Kajurda; long blue-roofed covered storage with conveyor ~300m N, large circular storage pad/basin ~250m SE, township SW; pin on open compacted ground",low,2026-09-20
+G097,gas flare ,Nayara elevated flare: tall lattice derrick in circular gravel sterile zone ~180m SE of pin; flare header with expansion loops NE knockout/seal drum at base; long shadow,high,2026-09-20
 G098,uncertain,A clustered town and houses,low,2026-09-20
 G101,industrial,near oil tank storage,high,2026-09-20
 G104,industrial,"Nayara site at Kajurda; long blue-roofed covered storage with conveyor ~300m N, large circular storage pad/basin ~250m SE, township SW; pin on open compacted ground",low,2026-09-20

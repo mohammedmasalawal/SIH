@@ -1,0 +1,16 @@
+sample_id,verified_label,structure_seen,confidence,verified_date
+H001,industrial,"Reliance DTA refinery process core; dense process plant and pipe racks at pin, CFP O&M ~300m SE, CFP 300-60 substation SE, DTA-HT ~400m W, Utility O&M office S; no flare stack visible",medium,2026-09-23
+H002,industrial,"on main pipe rack, Reliance DTA; PRU plant immediately SE, tank farm ~150m N, FCC regenerator ~400m S; no flare stack visible",medium,2026-09-23
+H003,industrial,"road junction in Reliance SEZ PCG beside FMO; process plant with air-cooler banks immediately E, SEZ PCG MRS 4 ~250m W, substation 700-30 NE, tanks SE; no flare stack visible",medium,2026-09-23
+H004,industrial,"Reliance DTA process core; dense process plant and equipment at pin, CFP 300-60 substation ~150m N, FCC 400-10 substation ~350m SE, crude 300-10 substation S; no flare stack visible",high,2026-09-23
+H005,industrial,"Reliance refinery at main pipe-rack junction; SEZ Coker ~300m ESE with dark ground around it, O&M Crude 3&4 NE, substation 700-30 NW, DTA MRS-2 SW, tanks nearby; no flare stack visible",high,2026-09-23
+H006,industrial,"on main E-W pipe rack in Reliance J3; SEZ Sulphur (SRU) ~350m N, PX-04 process buildings ~150m S, tanks W and NW, SEZ PP bagging NE; no flare stack visible",medium,2026-09-23
+H007,industrial,"pin on dark pond/lagoon inside Reliance C2 complex; Reliance Sibur Elastomers (IIR rubber plant) ~400m NE, C2 fire station SW, MMC warehouse S, vegetated plot W; no heat source on water",low,2026-09-23
+H008,industrial,"Reliance crude distillation area; O&M Crude 3&4 ~150m NW, crude 300-10 substation NW, FCC 400-10 substation N, SEZ Coker ~400m SW; dense process plant at pin; no flare stack visible",high,2026-09-23
+H009,industrial,"terraced scrub-covered mound (landscaped/possible capped spoil heap) inside Reliance SEZ S edge; Sir PN Rd ~150m SW, piping installation ~300m NE, process plant and tanks E; no heat source at pin",low,2026-09-23
+H010,industrial,road between bunded floating-roof tanks in Reliance refinery tank farm; CR Asia RTF site office ~150m NE; two tanks with dark/opened roofs (possible cleaning/maintenance) ~200m N and SW; no stack,low,2026-09-23
+H011,industrial,"Nayara Vadinar refinery process area at Timbdi; tall process structures with long shadows and dark ground immediately SE, main pipe-rack corridor NW, storage tanks ~350m NE; no flare stack visible",high,2026-09-23
+H012,uncertain,"solar PV farm among cultivated fields at Modpar; GETCO 66kV substation ~500m SW, Suzlon wind pulling station SE; no combustion source",medium,2026-09-23
+H013,uncertain,"Hi Con Solar Plant PV arrays at Ambardi Deri, pin at array edge beside fields; more arrays N; no combustion source",medium,2026-09-23
+H014,gas flare,"elevated flare stack on triangular lattice derrick ~150-200m SW of pin, flare header with expansion loops N, scorched ground at base, long shadow; pin on adjacent dark basin",high,2026-09-23
+H015,uncertain,"dark patch inland of DCC jetty at Sikka (coal/coke stockpile or mangrove — check); marine/ship-repair yards W along shore, DCC jetty custom post N; Digvijaygram SE",low,2026-09-23

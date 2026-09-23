@@ -16,7 +16,12 @@ from backend.config import (
     GEM_COAL_STATUSES_EXCLUDED,
     NATIONAL_PROJECTED_CRS,
 )
-from backend.ingestion.context_sources import load_gem_coal_mine_boundaries, load_gem_coal_mine_points, load_osm_mines
+from backend.ingestion.context_sources import (
+    exclude_renewable_power_plants,
+    load_gem_coal_mine_boundaries,
+    load_gem_coal_mine_points,
+    load_osm_mines,
+)
 from training.spatial_features import (
     add_recurrence_features,
     compute_is_anomalous,
@@ -71,7 +76,7 @@ def build_labels(
     """
     firms_csv = Path(firms_csv)
     firms = pd.read_parquet(firms_csv) if firms_csv.suffix == ".parquet" else pd.read_csv(firms_csv)
-    industrial = _read_vector(industrial_geojson).to_crs(NATIONAL_PROJECTED_CRS)
+    industrial = exclude_renewable_power_plants(_read_vector(industrial_geojson).to_crs(NATIONAL_PROJECTED_CRS))
     facilities = _read_vector(facilities_geojson).to_crs(NATIONAL_PROJECTED_CRS)
     detections = gpd.GeoDataFrame(
         firms,
