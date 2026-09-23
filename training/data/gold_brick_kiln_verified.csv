@@ -1,0 +1,11 @@
+sample_id,verified_label,structure_seen,confidence,verified_date
+BK001,uncertain,"village edge on Morinda–Chunni Rd; brick kiln ~500-550m NNW, hotmix plant ~700m NE; wheat fields around with dark (possibly burnt) patches",low,2026-09-23
+BK002,uncertain,"pin at edge of solar PV farm (Pekhubela); real brick kiln (red ring, clay pits) ~750-800m NW; green crop fields between; no heat source at pin",low,2026-09-23
+BK003,agricultural burning,road through dense crop fields (likely sugarcane); village ~300m E; real brick kiln with drying yard ~600m NE; no heat source at pin,low,2026-09-23
+BK004,uncertain,,low,2026-09-23
+BK005,industrial,"brick kiln (red oval ring, drying yards either side) ~300m S of pin; pin on harvested field; Baba Mahesh Mandir and village W",medium,2026-09-23
+BK006,wildfire,"open scrub/grass beside tree clump; terraced paddy fields N, village SE; reddish excavated pit ~350m W (possible clay pit), no kiln visible",low,2026-09-23
+BK007,industrial,DD Steel & Power (sponge iron/steel plant) ~150m S of pin; extensive black coal/char dust around site; Rudradev Industries NE,high,2026-09-23
+BK008,agricultural burning,No kiln,medium,2026-09-23
+BK009,wildfire,A forest patch in odisha,medium,2026-09-23
+BK010,industrial,On mital biotech limited,medium,2026-09-23
