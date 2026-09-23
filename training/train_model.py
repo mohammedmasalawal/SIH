@@ -217,13 +217,15 @@ def recompute_pre_split_features(frame: pd.DataFrame, cutoff_date: str) -> pd.Da
 
 
 def _load_and_filter_frame(labeled_csv: str | Path, gold_csv: GoldCsvPaths) -> pd.DataFrame:
-    """Read labeled_csv, drop label == "unknown", and exclude gold cells.
+    """Read labeled_csv (.csv or .parquet, by extension -- national-scale builds
+    emit Parquet), drop label == "unknown", and exclude gold cells.
 
     Shared starting point for both split strategies, so "detection" and
     "spatial_block" runs on the same labeled_csv are evaluated against the exact
     same candidate rows before splitting.
     """
-    frame = pd.read_csv(labeled_csv)
+    labeled_csv = Path(labeled_csv)
+    frame = pd.read_parquet(labeled_csv) if labeled_csv.suffix == ".parquet" else pd.read_csv(labeled_csv)
     frame = frame[frame["label"] != "unknown"].reset_index(drop=True)
     frame = exclude_gold_cells(frame, gold_csv)
     if frame.empty:
