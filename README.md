@@ -44,6 +44,32 @@ python main.py                       # then open http://localhost:8000/
 - **Click:** `/api/detection/{row_id}` reads that one row from the parquets with DuckDB (memory capped at `DUCKDB_MEMORY_LIMIT`); the server never loads the point set, so it stays ~300 MB with the model loaded.
 - **Performance:** measured with all 1.89M points on screen, 1400×900: ~116 fps panning on an RTX 3050 laptop GPU, but ~19 fps on the same laptop's Intel UHD integrated GPU (one month: ~38 fps). Chrome on Windows laptops uses the integrated GPU by default — set Chrome to "High performance" under Windows Settings → System → Display → Graphics for smooth panning.
 
+### Live ingestion
+
+`training/ingest_latest.py` keeps the national data current. Each run pulls the last N days (default 2, UTC) of VIIRS SNPP / NOAA-20 / NOAA-21 **NRT** detections over India, clips them to India's boundary, drops duplicates on `(latitude, longitude, acq_date, acq_time, satellite)` against everything already stored (so re-running a window adds nothing), and then:
+
+- computes the context columns with `build_labels.add_context_features` — the same cached OSM / GEM / coal-mine / WorldCover inputs as the historical build;
+- computes `recurrence_count` and `is_anomalous` against the historical + live store using **earlier detections only**. Recurrence counts a site's active days on or before the detection's date within `RECURRENCE_LOOKBACK_DAYS` (90) — the historical files counted within each 1-3-month period file, so an unbounded look-back would inflate recurrence relative to what the rules were checked against (`--lookback-days 0` = all history). `is_anomalous` uses the site's full prior history, as it always has;
+- applies the rules unchanged and appends to `training/data/live/labeled_hotspots_india_live_YYYY-MM.parquet` (one file per month; existing rows never move). The historical 12-month parquets are only read;
+- writes `training/data/live/alerts_latest.csv` — this run's `is_anomalous` detections labelled `industrial` or `gas flare`, with FRP vs the site's normal (median prior daily-max FRP) and the facility behind the label; it is empty when a run finds nothing new, so every alert is also appended to `alerts_history.csv` beside it — then repacks the map so `/` shows live data and click-through works on live points.
+
+```powershell
+python -m training.ingest_latest                                   # last 2 days
+python -m training.ingest_latest --start 2026-09-01 --end 2026-09-23   # backfill
+```
+
+A lock file (`training/data/live/ingest.lock`) stops overlapping runs.
+
+**Run it every 6 hours (Windows Task Scheduler)** — `training/run_ingest.cmd` sets the working directory and appends output to `training/data/live/logs/ingest.log`. From a Command Prompt:
+
+```bat
+schtasks /Create /TN "Agninetra live ingest" /SC HOURLY /MO 6 /ST 00:15 /TR "\"C:\Users\Admin\Documents\Agninetra\training\run_ingest.cmd\"" /F
+schtasks /Run /TN "Agninetra live ingest"          &:: run once now to check
+schtasks /Query /TN "Agninetra live ingest" /V /FO LIST
+```
+
+Or in the Task Scheduler GUI: *Create Task* → General: name "Agninetra live ingest", "Run whether user is logged on or not" → Triggers: *New*, Daily, start 00:15, "Repeat task every 6 hours" for "Indefinitely" → Actions: *Start a program*, `C:\Users\Admin\Documents\Agninetra\training\run_ingest.cmd` → Settings: "Do not start a new instance" if already running. The FIRMS key is read from `.env`, so the task needs no extra environment. A running API server picks up each repack on the next request (the sidecar's modification time is checked).
+
 ### Gold verification set
 
 `training/data/gold_sample.csv` (150 detections, 30 per class, at most one per ~375m grid cell, 10 drawn from `is_anomalous` cells, built with a fixed seed by `make_gold_sample.py`) is for manual satellite-imagery review — it deliberately withholds the `label` column. The silver label each `sample_id` was drawn with lives separately in `training/data/gold_key.csv`, so a reviewer can't see the rule's answer while checking it.

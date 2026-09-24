@@ -163,3 +163,18 @@ NATIONAL_LABELED_PARQUETS = tuple(
     for period in ("12mo_q1", "12mo_q2", "2026-03", "2026-04", "2026-05", "12mo_q4")
 )
 DUCKDB_MEMORY_LIMIT = "256MB"
+
+# --- Live ingestion (training/ingest_latest.py) ------------------------------------
+# National context caches -- the same inputs the historical national build used.
+NATIONAL_INDUSTRIAL_CONTEXT_PATH = ROOT_DIR / "data" / "osm" / "india_industrial_context.parquet"
+NATIONAL_FACILITIES_PATH = ROOT_DIR / "data" / "external" / "gem_facilities_india.geojson"
+NATIONAL_WORLDCOVER_DIR = ROOT_DIR / "data" / "raw" / "worldcover_india"
+# Live detections, one parquet per month; never mixed into NATIONAL_LABELED_PARQUETS.
+LIVE_DIR = ROOT_DIR / "training" / "data" / "live"
+LIVE_PARTITION_PREFIX = "labeled_hotspots_india_live_"
+ALERTS_LATEST_PATH = LIVE_DIR / "alerts_latest.csv"  # this run's alerts only; alerts_history.csv beside it keeps them all
+# Live recurrence_count counts a site's active days on or before each detection's
+# date within this many days. The historical files counted within each period file
+# (1-3 months, both directions), so an unbounded look-back would inflate recurrence
+# relative to what the rules were checked against.
+RECURRENCE_LOOKBACK_DAYS = 90

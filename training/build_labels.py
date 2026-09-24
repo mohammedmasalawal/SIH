@@ -78,6 +78,47 @@ def build_labels(
     """
     firms_csv = Path(firms_csv)
     firms = pd.read_parquet(firms_csv) if firms_csv.suffix == ".parquet" else pd.read_csv(firms_csv)
+    result = add_context_features(
+        firms,
+        industrial_geojson,
+        facilities_geojson,
+        worldcover_raster=worldcover_raster,
+        coal_boundaries_path=coal_boundaries_path,
+        coal_facilities_csv=coal_facilities_csv,
+    )
+
+    grid_lat, grid_lon = grid_keys(result)
+    result = add_recurrence_features(result, grid_lat, grid_lon)
+    result["is_anomalous"] = compute_is_anomalous(result, grid_lat, grid_lon).values
+
+    result = apply_rules(result)
+    for column in CONTRACT_COLUMNS:
+        if column not in result:
+            result[column] = None
+    output_path = Path(output_csv)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.suffix == ".parquet":
+        result[CONTRACT_COLUMNS].to_parquet(output_path, index=False)
+    else:
+        result[CONTRACT_COLUMNS].to_csv(output_path, index=False)
+    return result[CONTRACT_COLUMNS]
+
+
+def add_context_features(
+    firms: pd.DataFrame,
+    industrial_geojson: str | Path,
+    facilities_geojson: str | Path,
+    *,
+    worldcover_raster: str | Path | None = None,
+    coal_boundaries_path: str | Path = GEM_COAL_MINE_BOUNDARIES_PATH,
+    coal_facilities_csv: str | Path = GEM_COAL_MINE_CSV_PATH,
+) -> pd.DataFrame:
+    """Every spatial-context column (OSM industrial, GEM flare/heat facilities, coal
+    mine, brick kiln, WorldCover landcover) for a raw FIRMS frame -- everything
+    build_labels computes except the recurrence/anomaly features and the rules,
+    which depend on which other detections count as history (see
+    training/ingest_latest.py for the live, earlier-detections-only variant).
+    Argument formats are as documented on build_labels."""
     industrial = exclude_renewable_power_plants(_read_vector(industrial_geojson).to_crs(NATIONAL_PROJECTED_CRS))
     facilities = _read_vector(facilities_geojson).to_crs(NATIONAL_PROJECTED_CRS)
     detections = gpd.GeoDataFrame(
@@ -108,10 +149,6 @@ def build_labels(
     osm_brick_kilns = load_osm_brick_kilns(industrial)
     result["dist_to_brick_kiln_m"] = nearest_brick_kiln_distance(detections, osm_brick_kilns).values
 
-    grid_lat, grid_lon = grid_keys(result)
-    result = add_recurrence_features(result, grid_lat, grid_lon)
-    result["is_anomalous"] = compute_is_anomalous(result, grid_lat, grid_lon).values
-
     if worldcover_raster is not None and Path(worldcover_raster).is_dir():
         tile_index = WorldCoverTileIndex(worldcover_raster)
         result["landcover_class"] = tile_index.majority_class_in_buffer_batch(
@@ -121,18 +158,7 @@ def build_labels(
         result["landcover_class"] = landcover_majority(detections.geometry, worldcover_raster).values
     else:
         result["landcover_class"] = result.get("landcover_class", pd.Series(index=result.index, dtype="object"))
-
-    result = apply_rules(result)
-    for column in CONTRACT_COLUMNS:
-        if column not in result:
-            result[column] = None
-    output_path = Path(output_csv)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_path.suffix == ".parquet":
-        result[CONTRACT_COLUMNS].to_parquet(output_path, index=False)
-    else:
-        result[CONTRACT_COLUMNS].to_csv(output_path, index=False)
-    return result[CONTRACT_COLUMNS]
+    return result
 
 
 def _parse_args() -> argparse.Namespace:

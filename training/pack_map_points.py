@@ -24,7 +24,9 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import shutil
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -32,7 +34,14 @@ import numpy as np
 import pandas as pd
 
 from backend.classification.rules import CLASSES
-from backend.config import MAP_POINTS_META_PATH, MAP_POINTS_PATH, NATIONAL_LABELED_PARQUETS, ROOT_DIR
+from backend.config import (
+    LIVE_DIR,
+    LIVE_PARTITION_PREFIX,
+    MAP_POINTS_META_PATH,
+    MAP_POINTS_PATH,
+    NATIONAL_LABELED_PARQUETS,
+    ROOT_DIR,
+)
 
 _COLUMNS = ["longitude", "latitude", "acq_date", "label", "is_anomalous"]
 _DRAW_PRIORITY = ("unknown", "agricultural burning", "wildfire", "industrial", "gas flare")  # first drawn first
@@ -43,6 +52,27 @@ _LAYOUT = (  # name, dtype, values per row -- order keeps every offset aligned
     ("class_id", "uint8", 1),
     ("is_anomalous", "uint8", 1),
 )
+
+
+def map_source_parquets(live_dir: Path = LIVE_DIR, history_paths=NATIONAL_LABELED_PARQUETS) -> list[Path]:
+    """Historical national files, then the live monthly partitions in month order.
+    Live partitions sort after the historical files, so appending live data never
+    renumbers a historical row id."""
+    live = sorted(Path(live_dir).glob(f"{LIVE_PARTITION_PREFIX}*.parquet"))
+    return [*history_paths, *live]
+
+
+def _replace(tmp: Path, final: Path, attempts: int = 20) -> None:
+    """os.replace with retries: on Windows it fails while the API is streaming the
+    old file to a browser; those downloads finish within seconds."""
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, final)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.5)
 
 
 def _relative(path: Path) -> str:
@@ -87,9 +117,14 @@ def pack(parquets: list[Path], out_bin: Path, out_meta: Path) -> dict:
         "is_anomalous": data["is_anomalous"].fillna(False).astype(bool).to_numpy(dtype="u1")[order],
     }
 
+    # Written to temp files then swapped in, so a server reading the old pack mid-run
+    # never sees a half-written one.
+    out_bin, out_meta = Path(out_bin), Path(out_meta)
+    gz_path = out_bin.with_name(out_bin.name + ".gz")
+    tmp_bin, tmp_gz, tmp_meta = (path.with_name(path.name + ".tmp") for path in (out_bin, gz_path, out_meta))
     layout, offset = {}, 0
     out_bin.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_bin, "wb") as handle:
+    with open(tmp_bin, "wb") as handle:
         for name, dtype, per_row in _LAYOUT:
             array = arrays[name]
             assert array.size == count * per_row
@@ -98,8 +133,7 @@ def pack(parquets: list[Path], out_bin: Path, out_meta: Path) -> dict:
             offset += array.nbytes
     # Pre-compressed copy (~50% of raw) so the API can serve Content-Encoding: gzip
     # without compressing 30 MB on every request.
-    gz_path = out_bin.with_name(out_bin.name + ".gz")
-    with open(out_bin, "rb") as src, gzip.open(gz_path, "wb", compresslevel=6) as dst:
+    with open(tmp_bin, "rb") as src, gzip.open(tmp_gz, "wb", compresslevel=6) as dst:
         shutil.copyfileobj(src, dst)
 
     class_counts = np.bincount(arrays["class_id"], minlength=len(CLASSES))
@@ -116,13 +150,16 @@ def pack(parquets: list[Path], out_bin: Path, out_meta: Path) -> dict:
         "layout": layout,
         "sources": sources,
     }
-    out_meta.write_text(json.dumps(meta, indent=2))
+    tmp_meta.write_text(json.dumps(meta, indent=2))
+    for tmp, final in ((tmp_bin, out_bin), (tmp_gz, gz_path), (tmp_meta, out_meta)):  # sidecar last
+        _replace(tmp, final)
     return meta
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--parquets", type=Path, nargs="+", default=list(NATIONAL_LABELED_PARQUETS))
+    parser.add_argument("--parquets", type=Path, nargs="+", default=None,
+                        help="default: the historical national files plus every live monthly partition")
     parser.add_argument("--out", type=Path, default=MAP_POINTS_PATH)
     parser.add_argument("--meta", type=Path, default=MAP_POINTS_META_PATH)
     return parser.parse_args()
@@ -130,6 +167,6 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    meta = pack(args.parquets, args.out, args.meta)
+    meta = pack(args.parquets or map_source_parquets(), args.out, args.meta)
     print(f"Packed {meta['count']:,} detections -> {args.out} ({meta['bytes'] / 1e6:.1f} MB), "
           f"{meta['base_date']}..{meta['max_date']}")

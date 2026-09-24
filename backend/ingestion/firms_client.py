@@ -61,6 +61,13 @@ SATELLITE_SOURCES: dict[str, tuple[str, ...]] = {
     "NOAA21": ("VIIRS_NOAA21_NRT",),
     "SNPP": ("VIIRS_SNPP_SP", "VIIRS_SNPP_NRT"),
 }
+# Near-real-time only -- for live ingestion, where every requested day is recent
+# enough to be NRT and mixing in SP for a straggling day would be inconsistent.
+NRT_SATELLITE_SOURCES: dict[str, tuple[str, ...]] = {
+    "NOAA20": ("VIIRS_NOAA20_NRT",),
+    "NOAA21": ("VIIRS_NOAA21_NRT",),
+    "SNPP": ("VIIRS_SNPP_NRT",),
+}
 
 
 def _env(name: str) -> str:
@@ -301,6 +308,7 @@ def fetch_firms_multi(
     timeout_seconds: int = 60,
     chunk_days: int = 5,
     clip_boundary: str | Path | None = None,
+    satellite_sources: dict[str, tuple[str, ...]] = SATELLITE_SOURCES,
 ) -> pd.DataFrame:
     """Fetch and merge all three VIIRS satellites over [start_date, end_date] for one bbox (area API).
 
@@ -313,6 +321,8 @@ def fetch_firms_multi(
     INDIA_BBOX is a loose rectangle that also catches real fires in Myanmar, Sri
     Lanka, and Pakistan (47% of an unclipped one-month pull, in practice) --
     clip_boundary is what actually restricts detections to India's real shape.
+    satellite_sources picks which FIRMS sources may serve each satellite, in
+    preference order (default SP-then-NRT; NRT_SATELLITE_SOURCES for live pulls).
     """
     if end_date < start_date:
         raise ValueError("end_date must be on or after start_date")
@@ -324,7 +334,7 @@ def fetch_firms_multi(
     frames: list[pd.DataFrame] = []
     gaps: list[str] = []
     for satellite in satellites:
-        source_names = SATELLITE_SOURCES[satellite]
+        source_names = satellite_sources[satellite]
         segments = _resolve_segments(source_names, start_date, end_date, availability)
         covered_days = sum((seg_end - seg_start).days + 1 for _, seg_start, seg_end in segments)
         if covered_days < total_days:

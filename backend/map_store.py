@@ -31,20 +31,22 @@ class MapStore:
         self.gz_path = self.points_path.with_name(self.points_path.name + ".gz")
         self.meta_path = Path(meta_path)
         self._meta: dict | None = None
+        self._meta_mtime: int | None = None
         self._starts: list[int] = []
         self._con: duckdb.DuckDBPyConnection | None = None
         self._lock = threading.Lock()
 
     def meta(self) -> dict:
-        if self._meta is None:
-            if not self.meta_path.exists() or not self.points_path.exists():
-                raise MapDataUnavailable("map data not built -- run: python -m training.pack_map_points")
+        if not self.meta_path.exists() or not self.points_path.exists():
+            raise MapDataUnavailable("map data not built -- run: python -m training.pack_map_points")
+        mtime = self.meta_path.stat().st_mtime_ns
+        if self._meta is None or mtime != self._meta_mtime:  # repacked (e.g. by live ingestion)
             meta = json.loads(self.meta_path.read_text())
             starts, total = [], 0
             for source in meta["sources"]:
                 starts.append(total)
                 total += source["rows"]
-            self._starts, self._meta = starts, meta
+            self._starts, self._meta, self._meta_mtime = starts, meta, mtime
         return self._meta
 
     def _cursor(self) -> duckdb.DuckDBPyConnection:

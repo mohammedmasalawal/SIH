@@ -68,17 +68,48 @@ def compute_is_anomalous(
     modified z-score is one-sided (>z_threshold), so a drop in FRP is never
     "anomalous" by construction.
     """
+    return anomaly_baselines(
+        frame, grid_lat, grid_lon, min_prior_active_days=min_prior_active_days, z_threshold=z_threshold
+    )["is_anomalous"]
+
+
+def anomaly_baselines(
+    frame: pd.DataFrame,
+    grid_lat: pd.Series,
+    grid_lon: pd.Series,
+    *,
+    targets: pd.Series | None = None,
+    min_prior_active_days: int = MIN_PRIOR_ACTIVE_DAYS,
+    z_threshold: float = ANOMALY_Z_THRESHOLD,
+) -> pd.DataFrame:
+    """compute_is_anomalous's per-row detail: is_anomalous plus the baseline it was
+    judged against (baseline_frp = median prior daily-max FRP for that site and
+    day/night, prior_active_days = how many prior days that median covers; both NaN
+    when the site has too little history). `targets` (bool mask over frame) limits
+    evaluation to those rows -- the rest still serve as history but are returned
+    False/NaN -- so a small batch can be judged against a large history cheaply.
+    """
     work = pd.DataFrame(
         {"_glat": grid_lat, "_glon": grid_lon, "daynight": frame["daynight"], "acq_date": frame["acq_date"], "frp": frame["frp"]},
         index=frame.index,
     )
-    flags = pd.Series(False, index=frame.index)
+    if targets is None:
+        targets = pd.Series(True, index=frame.index)
+    out = pd.DataFrame(
+        {"is_anomalous": False, "baseline_frp": np.nan, "prior_active_days": np.nan}, index=frame.index
+    )
+    work["_target"] = targets.to_numpy()
+    site = ["_glat", "_glon", "daynight"]
+    target_sites = pd.MultiIndex.from_frame(work.loc[work["_target"], site].drop_duplicates())
+    work = work[pd.MultiIndex.from_frame(work[site]).isin(target_sites)]  # only sites with a target row
 
-    for _, group in work.groupby(["_glat", "_glon", "daynight"]):
+    for _, group in work.groupby(site):
         daily_max = group.groupby("acq_date")["frp"].max().sort_index()
         dates = daily_max.index.to_numpy()
         values = daily_max.to_numpy(dtype="float64")
         for idx, row in group.iterrows():
+            if not row["_target"]:
+                continue
             frp = row["frp"]
             if pd.isna(frp):
                 continue
@@ -93,8 +124,51 @@ def compute_is_anomalous(
             else:
                 modified_z = 0.6745 * (frp - median) / mad
                 anomalous = modified_z > z_threshold
-            flags.loc[idx] = bool(anomalous)
-    return flags
+            out.loc[idx] = (bool(anomalous), median, prior.size)
+    out["is_anomalous"] = out["is_anomalous"].astype(bool)
+    return out
+
+
+def add_causal_recurrence_features(
+    frame: pd.DataFrame,
+    grid_lat: pd.Series,
+    grid_lon: pd.Series,
+    targets: pd.Series,
+    *,
+    lookback_days: int | None = None,
+) -> pd.DataFrame:
+    """recurrence_count / first_seen / last_seen for the `targets` rows, counting only
+    that site's active days on or before each row's own date (earlier detections
+    only -- never later ones, unlike add_recurrence_features, which counts the
+    whole frame). The row's own day counts, so a first-ever detection gets 1, same
+    as the batch definition. lookback_days, if given, also drops days more than that
+    many days before the row's date. Non-target rows are returned unchanged.
+    """
+    result = frame.copy()
+    days = pd.DataFrame({"_glat": grid_lat, "_glon": grid_lon, "acq_date": pd.to_datetime(frame["acq_date"])})
+    target_rows = days[targets.to_numpy()]
+    cells = target_rows[["_glat", "_glon"]].drop_duplicates()
+    active = days.merge(cells, on=["_glat", "_glon"]).drop_duplicates().sort_values("acq_date")
+    by_cell = {key: grp["acq_date"].to_numpy() for key, grp in active.groupby(["_glat", "_glon"])}
+
+    counts, firsts = [], []
+    for glat, glon, when in zip(target_rows["_glat"], target_rows["_glon"], target_rows["acq_date"]):
+        cell_days = by_cell[(glat, glon)]
+        end = int(np.searchsorted(cell_days, np.datetime64(when), side="right"))
+        start = 0
+        if lookback_days is not None:
+            start = int(np.searchsorted(cell_days, np.datetime64(when - pd.Timedelta(days=lookback_days)), side="left"))
+        counts.append(end - start)
+        firsts.append(pd.Timestamp(cell_days[start]).strftime("%Y-%m-%d"))
+
+    for column in ("recurrence_count", "first_seen", "last_seen"):
+        if column not in result:
+            result[column] = pd.Series(pd.NA, index=result.index, dtype="object")
+    mask = targets.to_numpy()
+    result.loc[mask, "recurrence_count"] = counts
+    result.loc[mask, "first_seen"] = firsts
+    result.loc[mask, "last_seen"] = target_rows["acq_date"].dt.strftime("%Y-%m-%d").to_numpy()
+    return result
 
 
 def osm_industrial_tag(detections: gpd.GeoDataFrame, industrial: gpd.GeoDataFrame) -> pd.Series:
