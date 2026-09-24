@@ -1,0 +1,95 @@
+sample_id,verified_label,structure_seen,confidence,verified_date
+G001,industrial,"perimeter ground off Sir PN Rd inside Reliance complex; coke yard W, C2 warehouse/paved yard N, dark stockpile S, fields E; no flare stack at pin",low,2026-09-20
+G002,uncertain,"open scrub with scattered bushes, no structures; cultivated plots ~150m E and SW; SWIR 04-Jan vs 19-Jan unchanged, no burn scar; nbr_before 0.09 so ground already bare",low,2026-09-24
+G003,industrial,"W edge of Reliance SEZ beside Sir PN Rd; open/scrub ground at pin, SEZ PCG process units and substation ~300-400m E; no flare stack at pin",low,2026-09-20
+G004,industrial,"S edge of Reliance SEZ tank farm; ~8 bunded storage tanks 100-300m N, pipe racks/process row immediately S; no flare stack in frame",medium,2026-09-20
+G005,agricultural burning,"cropland; dNBR mean 0.06 but p10 0.23 — small localised scar, confirmed in SWIR 28-Feb vs 05-Mar.",high,2026-09-24
+G006,gas flare,"Reliance refinery process area; ZFCCU/Alky (cat cracker + alkylation) O&M office ~200m N, dense process plant with air-cooler banks S, RRTF rail gantry SE",medium,2026-09-20
+G007,agricultural burning,"bare cropland; NBR before −0.10 (no vegetation), dNBR uninformative; daytime late-May detection, likely pre-monsoon field clearing.",low,2026-09-24
+G008,agricultural burning,"bare cropland; NBR before −0.10 (no vegetation), dNBR uninformative; daytime late-May detection, likely pre-monsoon field clearing.",low,2026-09-24
+G009,industrial,"roof of large warehouse/covered storage N of C2 warehouse, inside Reliance petrochem area; LLDPE plant and PCC ~400m N; no stack or process unit at pin",low,2026-09-20
+G010,wildfire,"shrugs; sparse residue (NBR before 0.10), p10 0.13 — weak localised scar; SWIR 14-May vs 24-May [confirmed / not visible].",medium,2026-09-24
+G011,industrial,"scrub strip inside Reliance SEZ; bunded process/piping installation ~80m S, tanks and circular basins (possible treatment) ~200m E; no stack at pin",low,2026-09-20
+G013,uncertain,"solar PV farm, panel rows; small inverter/transformer block ~30m S of pin; farmland surrounding; no combustion source",medium,2026-09-24
+G014,industrial,"Reliance refinery core process area; FCC 400-10 substation ~150m SE, CFP substation ~250m NW, crude 3&4 units S; dense process plant, columns and pipe racks at pin",high,2026-09-20
+G015,agricultural burning,A bare land,low,2026-09-24
+G016,agricultural burning,"cropland; NBR before 0.20, p10 0.27 — localised scar, confirmed SWIR 10-Nov vs 15-Nov.",high,2026-09-24
+G017,industrial,"E edge of PX-04 Reliance J3 aromatics unit; spheres and tanks ~150m SW, PP bagging/ZPP load office ~250m N, ETP substation S",medium,2026-09-20
+G018,industrial,"Reliance DTA refinery process core; DTA Coker ~400m S, DTA-HT hydrotreater ~250m E, dense columns and pipe racks at pin",high,2026-09-20
+G019,agricultural burning,"cropland; NBR before 0.19, p10 0.15 — small scar; SWIR 23-Feb vs 28-Feb [confirmed ].",medium,2026-09-24
+G020,agricultural burning,,high,2026-09-24
+G021,agricultural burning,"cropland; sparse cover (NBR before 0.09), p10 0.09 just below threshold — no clear scar",low,2026-09-24
+G022,industrial,"Reliance DTA process core; FCC regenerator ~150m E, PRU plant ~400m N, DTA-HT SE; dense process plant and pipe racks at pin",high,2026-09-20
+G023,industrial,"bare cleared plot inside Reliance complex, W of C2 warehouse; pipe runs ~100m N, rail line W; nothing at pin",low,2026-09-20
+G024,uncertain,"laydown/scrap yard at Timbdi with containers, stacked pipe and materials; pipeline corridor runs NW and SE of pin; no process plant or stack",low,2026-09-20
+G025,agricultural burning,"cropland; near-bare (NBR before 0.05), p10 0.11 marginal — no reliable scar; late-March daytime fits harvest burning.",low,2026-09-24
+G026,industrial,"S boundary road of Reliance refinery tank farm; large floating-roof tanks 100-300m N, LPG spheres NE, RRTF substation E; no process unit or stack at pin",medium,2026-09-20
+G027,industrial,"road between ETP (clarifiers, ETP 400-22 substation ~250m NE) and DTA Cokeyard; black petcoke stockpile ~300m SE, two large circular silos/pits immediately S",medium,2026-09-20
+G028,industrial,"empty paved plot inside Reliance J3 area; tanks and dome ~200m W, ETP 400-23 substation and clarifiers ~250m S, dark lined basin/pond NE; nothing at pin",low,2026-09-20
+G029,agricultural burning,"cropland; bare (NBR before −0.03), dNBR uninformative; early-March daytime fits harvest burning.",low,2026-09-24
+G030,wildfire,bare cropland (NBR before −0.03); no dNBR change; early-June detection fits pre-monsoon field clearing,low,2026-09-24
+G031,agricultural burning,bare cropland (NBR before 0.02); no dNBR change; late-May daytime fits pre-monsoon field clearing.,low,2026-09-24
+G032,agricultural burning,"cropland; sparse cover (NBR before 0.09), p10 0.12 marginal; mid-March fits harvest burning.",low,2026-09-24
+G033,industrial,"landscaped strip between blocks in Reliance SEZ PCG; treatment basins/clarifiers ~150m SW, SEZ PCG office ~200m NE, process plant with air-cooler banks E",low,2026-09-20
+G034,gas flare,"The complex central structures shown in the previous image correspond to an FCC (Fluid Catalytic Cracking) unit zone, crucial for upgrading heavy distillates into lighter, high-value products like gasoline and LPG.",high,2026-09-20
+G035,agricultural burning,"cropland; sparse (NBR before 0.08), p10 0.10 borderline, no reliable scar; early-April daytime fits harvest burning.",low,2026-09-24
+G036,agricultural burning,bare cropland (NBR before −0.01); p10 0.13 unreliable on bare ground across monsoon onset; June detection fits pre-monsoon field clearing.,low,2026-09-24
+G037,uncertain,roadside beside above-ground pipeline corridor with expansion loops ~80m NE; ISOM O&M building ~400m NE; scrub and small structures around pin; no stack or process unit,low,2026-09-20
+G038,uncertain,"Digvijaygram residential township at Sikka; houses, shops, temples, gram panchayat; DCC jetty custom post ~400m NW; cement works off-frame E; no heat source at pin",low,2026-09-20
+G039,agricultural burning,bare cropland (NBR before 0.00); no dNBR change; late-March daytime fits harvest burning,low,2026-09-24
+G040,uncertain,"EPGL (Essar Power) site near Kajurda; gridded empty plots/township layout at pin, EPGL fire station ~400m SE, colony SW, large shed NE; no process plant or stack visible",low,2026-09-20
+G041,wildfire,"shrugs,(NBR before −0.02); no dNBR change; mid-April daytime fits harvest burning",low,2026-09-24
+G042,uncertain,Airking solar park,high,2026-09-24
+G043,agricultural burning,"cropland; NBR before 0.13, p10 0.15 — possible small scar; SWIR 01-Apr vs 09-Apr [confirmed]",medium,2026-09-24
+G044,industrial,"bare plot inside Reliance DTA ETP compound; clarifiers and filter beds ~200m W, ETP 400-22 substation ~150m SW, covered/greenhouse structures NE, lagoon SE, Cokeyard S",low,2026-09-20
+G045,uncertain,"Sikka village buildings among trees; Sikka beach and shore NW, DCC jetty custom post ~400m SW, Shree Digvijay Cement ~600m SE, Singh Shipyard N; no heat source at pin
+Verified label: uncertain",low,2026-09-20
+G046,industrial,"petrochemical refinery complex, specifically focusing on processing infrastructure within the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India.",high,2026-09-20
+G047,uncertain,"corner of large bare/compacted plot at Timbdi; small buildings and yards W, pipeline corridor ~150m E, PIT ROOM marker SW; no process plant or stack",low,2026-09-20
+G048,industrial,pipeline at industrial area,high,2026-09-20
+G049,wildfire,bare land (NBR before −0.02); no dNBR change; harvest-season daytime,low,2026-09-24
+G050,agricultural burning,"cropland; sparse (NBR before 0.08) but p10 0.23, mean 0.08 — strong localised drop; SWIR 24-Jan vs 03-Feb",medium,2026-09-24
+G051,industrial,"Reliance J3 storage area; large dome tank immediately W of pin, tank cluster ~200m N, PX-04 unit ~350m NW, ETP 400-23 substation and clarifiers SE",low,2026-09-20
+G052,wildfire,scrub and grass,low,2026-09-24
+G054,industrial,"air-cooled heat exchangers (fin-fans) at the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India",high,2026-09-20
+G056,industrial,"Nayara Vadinar refinery process area; ISOM unit ~400m NW, air-cooler/exchanger banks immediately SE and NE of pin, pipe racks throughout; no flare stack visible in frame",medium,2026-09-20
+G061,industrial,"W boundary road of Reliance SEZ PCG; scrub W of pin, treatment basins ~100m SE, SEZ PCG office ~250m NE, air-cooler banks in blocks E; no stack at pin",low,2026-09-20
+G070,industrial,"N edge of Reliance DTA Cokeyard; black petcoke stockpile immediately S and E of pin, ETP clarifiers and 400-22 substation ~150m N; no stack or process unit",medium,2026-09-20
+G071,industrial,"corner of admin/office building (RCB) inside Reliance DTA; canteen ~150m N, parking S, landscaping around; process plant with air-cooler banks 200-300m N and E; no heat source at pin",low,2026-09-20
+G072,industrial,"open service road or assembly courtyard situated directly between two major processing blocks at the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India.",low,2026-09-20
+G074,industrial,on the border of nayara energy power plant,low,2026-09-20
+G076,industrial,"scrub/tree patch inside Reliance SEZ W boundary; Sir PN Rd and perimeter wall ~250m W, pond N, SEZ PCG office and process plant ~400m E; no heat source at pin",low,2026-09-20
+G081,industrial,pipeline near refinary tank park reliance jamnagar,low,2026-09-20
+G082,industrial,inside reliance industry,low,2026-09-20
+G083,industrial,"on PX-04 Reliance J3 aromatics unit; pipe racks and process structures at pin, covered process buildings ~150m N, tanks and domes ~250m E",medium,2026-09-20
+G084,industrial,"scrub and tracks just outside Nayara refinery W boundary; ISOM O&M building ~250m SE, pipeline corridor NE, small piping/lattice installation ~150m S, refinery plant E",low,2026-09-20
+G086,industrial,Empty plor in naraya energy power plant,low,2026-09-20
+G091,industrial,near substation 700 - 30 in reliance refinary,low,2026-09-20
+G097,industrial,"Nayara site at Kajurda; long blue-roofed covered storage with conveyor ~300m N, large circular storage pad/basin ~250m SE, township SW; pin on open compacted ground",low,2026-09-20
+G098,uncertain,A clustered town and houses,low,2026-09-20
+G101,industrial,near oil tank storage,high,2026-09-20
+G104,industrial,"Nayara site at Kajurda; long blue-roofed covered storage with conveyor ~300m N, large circular storage pad/basin ~250m SE, township SW; pin on open compacted ground",low,2026-09-20
+G106,industrial,"Adani Agro Park, Mundra; pin on roof of long narrow warehouse/processing shed, second parallel shed alongside, more sheds ~600m NE; scrub around; no stack or process unit",low,2026-09-20
+G108,industrial,In reliance refinary,low,2026-09-20
+G114,industrial,"E edge of Reliance tank farm; storage tanks 100-300m W, structure with vertical elements and long low building immediately NW of pin, site bund/wall and trees E",low,2026-09-20
+G117,uncertain,"Nayara water/effluent treatment area at Zankhar; clarifiers immediately W and SE, service water reservoir SW, filter beds NW, dark stockpile/pond ~200m NE; no combustion source",low,2026-09-20
+G118,industrial,inside the reliance refinary,low,2026-09-20
+G121,industrial,"Reliance refinery process unit at ~20m zoom; tall column/tower immediately E of pin casting long shadow, exchanger/air-cooler banks E and SE, process buildings N, pipe racks throughout",high,2026-09-20
+G122,industrial,"The red pinpoint marks a distribution manifold and structural pipeline intersection located within the Special Economic Zone (SEZ) area of the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India.",medium,2026-09-20
+G123,industrial,"The red pinpoint marks a distribution manifold and structural pipeline intersection located within the Special Economic Zone (SEZ) area of the Reliance Industries Jamnagar Refinery in Motikhavdi, Gujarat, India.",medium,2026-09-20
+G124,industrial,"petroleum storage tank yard located within the Reliance Industries Jamnagar Refinery complex in Motikhavdi, Gujarat, India.",high,2026-09-20
+G125,industrial,The red pinpoint marks a critical mechanical processing section—likely near the rotary kiln or milling buildings—of the Shree Digvijay Cement factory.,medium,2026-09-20
+G128,industrial,"Directly below the pinpointed building are six circular structures arranged in two columns. These are specialized pressurized storage vessels typically used to store volatile liquefied gases like LPG, propane, or propylene under high pressure.
+Located southwest of the pinpoint is a massive chemical processing sector labeled PX-04 Reliance J3, which is part of the Paraxylene (PX) production facility.",medium,2026-09-20
+G130,industrial,"edge of Nayara PP plant area at Kathi Devaliya; PP PLANT ~250m W, blue-roofed shed SW, highway 151A SE, tree plantation/green belt E; pin on scrub, no stack",low,2026-09-20
+G132,industrial,"The red pinpoint marks a north-south service road running directly alongside a major multi-tiered pipeline corridor. To the left of the pinpoint is a long, highly structured bank of fin-fan industrial coolers, which drop temperatures for processing liquids and steam.Just to the right of the pinpoint is a dedicated railway spur line and loading facility labeled RRTF Rail Gantry. This infrastructure allows the refinery to directly load refined petroleum products and chemical liquids into rail tankers for cross-country distribution.",medium,2026-09-20
+G133,industrial,"The red pinpoint marks a service pathway directly adjacent to a long vertical pipe rack corridor. You can see structured U-shaped loops along the pipeline network, which are standard expansion loops designed to safely handle thermal expansion and contraction as hot fluids pass through.",medium,2026-09-20
+G135,industrial,"The red pinpoint marks a line of large industrial gas or steam turbines. The prominent rows of vertical structures at the bottom center and right are major power generation modules, boiler exhausts, or cooling systems supplying electrical energy and steam directly to the refinery's heavy chemical units.
+Located directly below the pinpoint is a massive electrical substation building that manages and distributes high-voltage power generated by the plant.",medium,2026-09-20
+G136,industrial,"Nayara refinery W perimeter road at Timbdi; scrub inside boundary W, process plant and pipe racks E, ISOM O&M building ~250m NE; no stack at pin",low,2026-09-20
+G141,uncertain,shanti solar power plant,low,2026-09-20
+G143,uncertain,A road at the border of reliance refinary,low,2026-09-20
+G145,industrial,"The red pinpoint marks the base of a prominent vertical pipe rack bridge structure. This elevated framework carries heavy chemical and utility pipelines over the primary horizontal asphalt logistics road below, allowing vehicles to pass underneath without disrupting the continuous flow of materials.",low,2026-09-20
+G146,uncertain,clustered houses outside digvijay cement company,low,2026-09-20
+G147,industrial,"The entire grid layout is dominated by massive circular floating-roof storage tanks. These tanks are structurally organized inside square, earthen-bunded containment dikes designed to capture spills in an emergency.",medium,2026-09-20
+G148,industrial,"Shreeji Coke and Energy Pvt Ltd, Khiri; long process sheds and stacks ~100-200m NE of pin, dark stockpiles, standalone plant surrounded by farmland",high,2026-09-20

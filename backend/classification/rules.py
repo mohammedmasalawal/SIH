@@ -9,7 +9,7 @@ from backend.config import (
     COAL_MINE_MIN_RECURRENCE,
     COAL_MINE_OSM_MAX_DIST_M,
     COAL_MINE_OSM_MIN_RECURRENCE,
-    CROPLAND_LANDCOVER_TERMS,
+    CROPLAND_LANDCOVER_CODES,
     GAS_FLARE_MAX_DIST_M,
     GAS_FLARE_MIN_RECURRENCE,
     INDUSTRIAL_HEAT_MAX_DIST_M,
@@ -17,7 +17,7 @@ from backend.config import (
     INDUSTRIAL_MIN_RECURRENCE,
     INDUSTRIAL_POLYGON_TOLERANCE_M,
     NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M,
-    NATURAL_LANDCOVER_TERMS,
+    NATURAL_LANDCOVER_CODES,
 )
 
 CLASSES = ("industrial", "gas flare", "agricultural burning", "wildfire", "unknown")
@@ -156,18 +156,28 @@ def is_industrial(row: pd.Series) -> bool:
     return False
 
 
+def _landcover_code(row: pd.Series) -> int | None:
+    """WorldCover class as an int (accepts 10, "10", 10.0), or None if absent/non-numeric."""
+    value = row.get("landcover_class")
+    if value is None or pd.isna(value):
+        return None
+    try:
+        code = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(code) if code.is_integer() else None
+
+
 def is_agricultural_burning(row: pd.Series) -> bool:
-    landcover = str(row.get("landcover_class", "")).lower()
     distance = _number(row, "dist_to_industrial_m")
-    return any(term in landcover for term in CROPLAND_LANDCOVER_TERMS) and (
+    return _landcover_code(row) in CROPLAND_LANDCOVER_CODES and (
         distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M
     )
 
 
 def is_wildfire(row: pd.Series) -> bool:
-    landcover = str(row.get("landcover_class", "")).lower()
     distance = _number(row, "dist_to_industrial_m")
-    return any(term in landcover for term in NATURAL_LANDCOVER_TERMS) and (
+    return _landcover_code(row) in NATURAL_LANDCOVER_CODES and (
         distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M
     )
 

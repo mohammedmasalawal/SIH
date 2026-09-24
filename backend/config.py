@@ -22,8 +22,10 @@ INDUSTRIAL_MIN_RECURRENCE = 2
 INDUSTRIAL_HEAT_SINGLE_DAY_MAX_DIST_M = 500
 INDUSTRIAL_POLYGON_TOLERANCE_M = 1
 NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M = 2_000
-CROPLAND_LANDCOVER_TERMS = ("cropland", "crop", "agriculture", "40")
-NATURAL_LANDCOVER_TERMS = ("forest", "shrub", "grass", "woodland", "10", "20", "30")
+# ESA WorldCover class codes, matched exactly (never as substrings -- "10" is a
+# substring of "100", moss/lichen, which would otherwise read as tree cover).
+CROPLAND_LANDCOVER_CODES = (40,)  # cropland
+NATURAL_LANDCOVER_CODES = (10, 20, 30)  # tree cover, shrubland, grassland
 # Coal-mine path (is_industrial): GEM (boundary-preferred, point+area-scaled fallback)
 # is checked first and trusted at a generous radius -- mining leases are large, and
 # seam fires outlive active mining, so GEM_COAL_STATUSES_EXCLUDED below keeps closed/

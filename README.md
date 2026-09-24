@@ -124,6 +124,26 @@ Rebuilt nationally via the targeted recompute (`training/recompute_industrial_an
 
 **Future work:** the 3-4 verified hits were real kilns/plants within ~300m of the pin, well inside the 500m radius that was tested — a narrower radius (e.g. 300m) on a fresh, larger gold sample is the natural next test before deciding whether any brick-kiln path is worth re-adding.
 
+### `agricultural burning` / `wildfire` landcover matching
+
+Both rules key on the ESA WorldCover class in `landcover_class`, matched as **exact integer codes** (`CROPLAND_LANDCOVER_CODES = (40,)`, `NATURAL_LANDCOVER_CODES = (10, 20, 30)` in `backend/config.py`; `10`, `"10"`, and `10.0` all parse to the same code), plus the shared `dist_to_industrial_m > 2000m` requirement. They used to substring-match (`"10" in "100"`), which read class 100 (moss/lichen) as tree cover — 66 national detections were labelled `wildfire` on that basis. Fixed and recomputed via the targeted recompute: exactly those 66 moved `wildfire → unknown`, nothing else changed (`tests/test_rules.py` has the class-100 regression test). No other rule matches landcover; OSM tag rules use exact equality. The Jamnagar regional build has no class-100 pixels and is unaffected.
+
+#### Shrubland-based wildfire labels (finding, no rule change)
+
+Gold-set review around Jamnagar (`training/data/gold_verified_agri_wildfire.csv`) found the `wildfire` rule weak there: of 9 rows the rules called `wildfire`, only 4 were verified wildfire, and all 5 misses were verified `agricultural burning` — every one of the 9 sits on WorldCover class 20 (shrubland). In semi-arid Saurashtra, WorldCover's shrubland class often covers fallow or bare cropland, so field burning there reads as wildfire. (`agricultural burning` held up: 9/10.)
+
+Nationally (723,223 `wildfire` detections, after the class-100 fix):
+
+| WorldCover class | `wildfire` detections | share |
+|---|---|---|
+| 10 tree cover | 536,217 | 74.14% |
+| 30 grassland | 134,550 | 18.60% |
+| 20 shrubland | 52,456 | **7.25%** |
+
+The national shrubland share is small, but it's concentrated: Andhra Pradesh (23,384) and Karnataka (11,766) hold 67% of all shrubland-based wildfire labels, and shrubland underpins 38.1% and 51.7% of those states' wildfire labels respectively (Gujarat 25.6%, Rajasthan 22.5%, Tamil Nadu 19.2%). If the Jamnagar pattern holds in those states, a large fraction of their `wildfire` labels may actually be crop-residue burning. **Grassland (class 30, 18.6% of national wildfire) is untested** — it may carry the same fallow-cropland confusion in semi-arid areas.
+
+**Future work:** regional gold samples of shrubland- and grassland-based `wildfire` detections in Andhra Pradesh, Karnataka, and Rajasthan, before any change to how classes 20/30 are treated. The Jamnagar result is one semi-arid region and hasn't been validated outside Gujarat.
+
 ### `is_anomalous`
 
 Per ~375m grid cell, per day/night (VIIRS reads FRP differently under solar illumination, so baselines are kept separate): compare a detection's FRP to that same cell's own **prior** history only — never same-day or future detections. Needs at least 5 prior active days at that cell; before that, always `False` (not "normal", just not yet judged). Baseline is the site's daily-max FRP (median + MAD, robust to outliers); flagged when the modified z-score `0.6745 * (frp - median) / MAD > 3.5`, or `frp > 3 * median` when MAD is 0. One-sided — a drop in FRP, or a missing detection, is never flagged.

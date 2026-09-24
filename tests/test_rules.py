@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from backend.classification.rules import classify, is_agricultural_burning, is_industrial, is_wildfire
 from backend.config import (
@@ -14,7 +15,7 @@ from backend.config import (
 
 
 def test_ambiguous_context_is_unknown():
-    row = pd.Series({"frp": 50, "dist_to_industrial_m": 1000, "dist_to_flare_capable_m": 500, "dist_to_heat_industry_m": 500, "recurrence_count": 2, "landcover_class": "cropland"})
+    row = pd.Series({"frp": 50, "dist_to_industrial_m": 1000, "dist_to_flare_capable_m": 500, "dist_to_heat_industry_m": 500, "recurrence_count": 2, "landcover_class": "40"})
     assert classify(row) == "unknown"
 
 
@@ -40,13 +41,35 @@ def test_single_day_far_from_everything_is_unknown():
 
 
 def test_agricultural_burning_true_case():
-    row = pd.Series({"landcover_class": "cropland", "dist_to_industrial_m": 5_000})
+    row = pd.Series({"landcover_class": "40", "dist_to_industrial_m": 5_000})
     assert is_agricultural_burning(row) is True
 
 
 def test_wildfire_true_case():
-    row = pd.Series({"landcover_class": "forest", "dist_to_industrial_m": 5_000})
+    row = pd.Series({"landcover_class": "10", "dist_to_industrial_m": 5_000})
     assert is_wildfire(row) is True
+
+
+@pytest.mark.parametrize("landcover", [100, "100", 100.0])
+def test_moss_lichen_class_100_is_not_natural_or_cropland(landcover):
+    """Regression: substring matching read WorldCover 100 (moss/lichen) as 10 (tree cover)."""
+    row = pd.Series({"landcover_class": landcover, "dist_to_industrial_m": 5_000})
+    assert is_wildfire(row) is False
+    assert is_agricultural_burning(row) is False
+
+
+@pytest.mark.parametrize("landcover", [10, "10", 10.0, 20, 30])
+def test_natural_codes_match_exactly_in_any_numeric_form(landcover):
+    row = pd.Series({"landcover_class": landcover, "dist_to_industrial_m": 5_000})
+    assert is_wildfire(row) is True
+    assert is_agricultural_burning(row) is False
+
+
+@pytest.mark.parametrize("landcover", ["cropland", "forest", "not-a-code", None])
+def test_non_numeric_landcover_matches_neither(landcover):
+    row = pd.Series({"landcover_class": landcover, "dist_to_industrial_m": 5_000})
+    assert is_wildfire(row) is False
+    assert is_agricultural_burning(row) is False
 
 
 def test_double_match_resolves_to_unknown():
@@ -59,7 +82,7 @@ def test_double_match_resolves_to_unknown():
         "dist_to_heat_industry_m": 100,
         "dist_to_flare_capable_m": 20_000,
         "recurrence_count": 1,
-        "landcover_class": "cropland",
+        "landcover_class": "40",
     })
     assert is_industrial(row) is True
     assert is_agricultural_burning(row) is True
