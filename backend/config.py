@@ -172,9 +172,33 @@ NATIONAL_WORLDCOVER_DIR = ROOT_DIR / "data" / "raw" / "worldcover_india"
 # Live detections, one parquet per month; never mixed into NATIONAL_LABELED_PARQUETS.
 LIVE_DIR = ROOT_DIR / "training" / "data" / "live"
 LIVE_PARTITION_PREFIX = "labeled_hotspots_india_live_"
-ALERTS_LATEST_PATH = LIVE_DIR / "alerts_latest.csv"  # this run's alerts only; alerts_history.csv beside it keeps them all
+ALERTS_LATEST_PATH = LIVE_DIR / "alerts_latest.csv"  # this run's alerts only
+ALERTS_HISTORY_PATH = LIVE_DIR / "alerts_history.csv"  # every alert ever raised; the map's alerts panel reads it
 # Live recurrence_count counts a site's active days on or before each detection's
 # date within this many days. The historical files counted within each period file
 # (1-3 months, both directions), so an unbounded look-back would inflate recurrence
 # relative to what the rules were checked against.
 RECURRENCE_LOOKBACK_DAYS = 90
+
+# --- Live alert types (training/alerts.py) -------------------------------------------
+# Untested starting values -- none of these has been checked against verified
+# ground truth yet. Alerts never change a detection's label.
+# fire_near_infrastructure: a natural/crop fire close to energy infrastructure.
+INFRA_FIRE_LABELS = ("agricultural burning", "wildfire")
+INFRA_FIRE_MAX_DIST_M = 2_000
+INFRA_GEM_FACILITY_TYPES = ("oil_gas_power_plant", "coal_power_plant", "oil_gas_field", "lng_terminal")
+INFRA_OSM_INDUSTRIAL_TAGS = (  # OSM industrial=* values that are refinery / oil & gas infrastructure
+    "refinery", "oil", "gas", "petroleum_terminal", "oil_storage", "gas_storage", "gas_plant",
+    "natural_gas", "petrochemical",
+)
+INFRA_INCLUDE_OSM_POWER_PLANTS = True  # every OSM power=plant, including solar/wind/hydro
+# new_unmapped_source: a ~375 m cell that has started burning repeatedly with no known
+# facility nearby.
+UNMAPPED_NO_FACILITY_WITHIN_M = 2_000
+UNMAPPED_WINDOW_DAYS = 30
+UNMAPPED_MIN_ACTIVE_DAYS = 5
+UNMAPPED_MAX_PRIOR_ACTIVE_DAYS = 1  # "wasn't recurring before": at most 1 active day before the window
+# large_fire_event: a same-day cluster (DBSCAN: a detection with >= MIN detections within
+# RADIUS, including itself, seeds a cluster; clusters can chain beyond RADIUS).
+LARGE_FIRE_RADIUS_M = 5_000
+LARGE_FIRE_MIN_DETECTIONS = 10

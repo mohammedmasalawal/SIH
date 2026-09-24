@@ -16,8 +16,8 @@ Each run:
   4. computes recurrence_count and is_anomalous against the historical + live store,
      from earlier detections only (never later ones);
   5. applies rules.apply_rules unchanged;
-  6. writes alerts_latest.csv (this run's anomalous detections at industrial/flare
-     sites -- empty when nothing new arrived) and appends them to alerts_history.csv,
+  6. writes alerts_latest.csv (this run's new alerts of every type in
+     training/alerts.py -- empty when nothing new) and appends them to alerts_history.csv,
      then appends to one live parquet per month under LIVE_DIR, then repacks the map
      (historical + live).
 
@@ -41,9 +41,7 @@ from backend.classification.rules import apply_rules
 from backend.config import (
     ALERTS_LATEST_PATH,
     CONTRACT_COLUMNS,
-    GAS_FLARE_MAX_DIST_M,
     INDIA_BOUNDARY_PATH,
-    INDUSTRIAL_HEAT_MAX_DIST_M,
     LIVE_DIR,
     LIVE_PARTITION_PREFIX,
     MAP_POINTS_META_PATH,
@@ -55,13 +53,22 @@ from backend.config import (
     RECURRENCE_LOOKBACK_DAYS,
 )
 from backend.ingestion.firms_client import INDIA_BBOX, NRT_SATELLITE_SOURCES, fetch_firms_multi
+from training.alerts import (
+    ALERT_TYPES,
+    build_alerts,
+    complete_days,
+    detection_keys,
+    drop_known,
+    load_infrastructure_sites,
+    read_alert_history,
+)
 from training.build_labels import add_context_features
 from training.pack_map_points import map_source_parquets, pack
 from training.spatial_features import add_causal_recurrence_features, anomaly_baselines, grid_keys
 
 KEY_COLUMNS = ["latitude", "longitude", "acq_date", "acq_time", "satellite"]
 _HISTORY_COLUMNS = ["latitude", "longitude", "acq_date", "acq_time", "satellite", "daynight", "frp"]
-ALERT_LABELS = ("industrial", "gas flare")
+_STORE_COLUMNS = [*_HISTORY_COLUMNS, "label"]
 LOCK_STALE_SECONDS = 6 * 3600
 
 Fetcher = Callable[[date, date, Path], pd.DataFrame]
@@ -75,22 +82,6 @@ def fetch_nrt_india(start: date, end: date, raw_path: Path) -> pd.DataFrame:
     )
 
 
-def detection_keys(frame: pd.DataFrame) -> pd.Series:
-    """One string per detection over KEY_COLUMNS, normalised so the same detection
-    matches whatever dtypes it was stored with (acq_time is int in some historical
-    files and a zero-padded string in others; coordinates carry FIRMS' 5 decimals)."""
-    if frame.empty:
-        return pd.Series([], index=frame.index, dtype="object")
-    acq_time = frame["acq_time"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(4)
-    return (
-        frame["latitude"].astype(float).round(5).map("{:.5f}".format)
-        + "|" + frame["longitude"].astype(float).round(5).map("{:.5f}".format)
-        + "|" + frame["acq_date"].astype(str).str[:10]
-        + "|" + acq_time
-        + "|" + frame["satellite"].astype(str)
-    )
-
-
 def live_partition_path(live_dir: Path, month: str) -> Path:
     return Path(live_dir) / f"{LIVE_PARTITION_PREFIX}{month}.parquet"
 
@@ -100,9 +91,9 @@ def _live_partitions(live_dir: Path) -> list[Path]:
 
 
 def load_history(history_paths: list[Path], live_dir: Path) -> pd.DataFrame:
-    frames = [pd.read_parquet(path, columns=_HISTORY_COLUMNS) for path in [*history_paths, *_live_partitions(live_dir)]]
+    frames = [pd.read_parquet(path, columns=_STORE_COLUMNS) for path in [*history_paths, *_live_partitions(live_dir)]]
     if not frames:
-        return pd.DataFrame(columns=_HISTORY_COLUMNS)
+        return pd.DataFrame(columns=_STORE_COLUMNS)
     history = pd.concat(frames, ignore_index=True)
     history["acq_date"] = history["acq_date"].astype(str).str[:10]
     return history
@@ -118,64 +109,19 @@ def _normalise_raw(raw: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def _text(value) -> str | None:
-    return value if isinstance(value, str) and value and value.lower() != "nan" else None
-
-
-def _site_evidence(row: pd.Series) -> tuple[str, float | None]:
-    """The facility that makes this an industrial/flare site, and its distance."""
-    flare_type = _text(row.get("nearest_flare_facility_type")) or "flare-capable facility"
-    if row["label"] == "gas flare":
-        return flare_type, row.get("dist_to_flare_capable_m")
-    heat = row.get("dist_to_heat_industry_m")
-    if pd.notna(heat) and heat <= INDUSTRIAL_HEAT_MAX_DIST_M:
-        return _text(row.get("nearest_heat_facility_type")) or "heat industry", heat
-    flare = row.get("dist_to_flare_capable_m")
-    if pd.notna(flare) and flare <= GAS_FLARE_MAX_DIST_M:
-        return flare_type, flare
-    if tag := _text(row.get("osm_industrial_tag")):
-        return f"OSM industrial={tag}", row.get("dist_to_industrial_m")
-    if source := _text(row.get("nearest_coal_source")):
-        return f"coal mine ({source})", row.get("dist_to_coal_mine_m")
-    return "OSM industrial area", row.get("dist_to_industrial_m")
-
-
-def build_alerts(labeled: pd.DataFrame) -> pd.DataFrame:
-    """Anomalous detections at industrial / gas-flare sites, strongest first."""
-    columns = [
-        "latitude", "longitude", "acq_date", "acq_time", "satellite", "daynight", "label",
-        "frp", "site_normal_frp", "frp_vs_normal", "prior_active_days",
-        "facility_type", "facility_distance_m", "maps_link",
-    ]
-    if labeled.empty:
-        return pd.DataFrame(columns=columns)
-    hits = labeled[labeled["is_anomalous"].astype(bool) & labeled["label"].isin(ALERT_LABELS)].copy()
-    if hits.empty:
-        return pd.DataFrame(columns=columns)
-    evidence = hits.apply(_site_evidence, axis=1, result_type="expand")
-    hits["facility_type"] = evidence[0]
-    hits["facility_distance_m"] = pd.to_numeric(evidence[1], errors="coerce").round(0)
-    hits["site_normal_frp"] = hits["baseline_frp"].round(2)
-    hits["frp_vs_normal"] = (hits["frp"] / hits["baseline_frp"]).round(2)
-    hits["prior_active_days"] = hits["prior_active_days"].astype("Int64")
-    hits["maps_link"] = [f"https://www.google.com/maps?q={lat},{lon}&t=k" for lat, lon in zip(hits["latitude"], hits["longitude"])]
-    return hits.sort_values("frp_vs_normal", ascending=False)[columns].reset_index(drop=True)
-
-
-def append_alert_history(alerts: pd.DataFrame, path: Path) -> int:
-    """Add alerts to the append-only history, skipping any already recorded."""
-    if alerts.empty:
-        return 0
-    if Path(path).exists():
-        history = pd.read_csv(path, dtype={"acq_time": str})
-        alerts = alerts[~detection_keys(alerts).isin(set(detection_keys(history)))]
-        if alerts.empty:
-            return 0
-        combined = pd.concat([history, alerts], ignore_index=True)
-    else:
-        combined = alerts
-    _write_atomic(combined, Path(path))
-    return len(alerts)
+def publish_alerts(
+    alerts: pd.DataFrame, latest_path: Path, history_path: Path, *, only_new: bool = True
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Write alerts_latest.csv and append unseen alerts to the append-only history.
+    Returns (latest, newly added). only_new=False (re-evaluation) writes every alert
+    evaluated into latest, not just the ones history hasn't seen."""
+    history = read_alert_history(history_path)
+    new = drop_known(alerts, history)
+    latest = new if only_new else alerts
+    _write_atomic(latest, Path(latest_path))
+    if not new.empty:
+        _write_atomic(pd.concat([history, new], ignore_index=True) if not history.empty else new, Path(history_path))
+    return latest, new
 
 
 def _write_atomic(frame: pd.DataFrame, path: Path) -> None:
@@ -218,6 +164,7 @@ class RunSummary:
     new_detections: int = 0
     label_mix: dict[str, int] = field(default_factory=dict)
     alerts: int = 0
+    alerts_by_type: dict[str, int] = field(default_factory=dict)
     partitions: dict[str, int] = field(default_factory=dict)
     map_repacked: bool = False
     map_points: int | None = None
@@ -231,7 +178,9 @@ class RunSummary:
         ]
         for label, n in sorted(self.label_mix.items(), key=lambda kv: -kv[1]):
             lines.append(f"    {label:<22}{n:>8,}")
-        lines.append(f"  alerts (anomalous at industrial/flare sites): {self.alerts:,}")
+        lines.append(f"  new alerts: {self.alerts:,}")
+        for alert_type in ALERT_TYPES:
+            lines.append(f"    {alert_type:<26}{self.alerts_by_type.get(alert_type, 0):>6,}")
         if self.partitions:
             lines.append("  appended: " + ", ".join(f"{m} +{n:,}" for m, n in sorted(self.partitions.items())))
         if self.map_repacked:
@@ -256,9 +205,11 @@ def run_ingest(
     repack_map: bool = True,
     map_points_path: Path = MAP_POINTS_PATH,
     map_meta_path: Path = MAP_POINTS_META_PATH,
+    today: date | None = None,
 ) -> tuple[RunSummary, pd.DataFrame]:
     """Returns the run summary and the newly labeled rows (with baseline columns)."""
     started = time.perf_counter()
+    today = today or datetime.now(timezone.utc).date()
     history_paths = list(NATIONAL_LABELED_PARQUETS if history_paths is None else history_paths)
     live_dir = Path(live_dir)
     summary = RunSummary(start=start, end=end)
@@ -305,12 +256,16 @@ def run_ingest(
         summary.label_mix = labeled["label"].value_counts().to_dict()
 
     # Alerts before the store: if a crash lands between the two, the re-run still
-    # sees these rows as new and rewrites the alerts.
-    alerts = build_alerts(labeled)
-    _write_atomic(alerts, Path(alerts_path))
+    # sees these rows as new and rewrites the alerts. Large-fire events are judged on
+    # every complete day in the window, even when this run brought nothing new.
+    store = pd.concat([history, labeled[_STORE_COLUMNS]], ignore_index=True) if not labeled.empty else history
+    alerts = build_alerts(
+        labeled, store, load_infrastructure_sites(industrial_path, facilities_path), complete_days(start, end, today)
+    )
     history_path = Path(alerts_history_path) if alerts_history_path else Path(alerts_path).with_name("alerts_history.csv")
-    append_alert_history(alerts, history_path)
-    summary.alerts = len(alerts)
+    _, new_alerts = publish_alerts(alerts, Path(alerts_path), history_path)
+    summary.alerts = len(new_alerts)
+    summary.alerts_by_type = new_alerts["alert_type"].value_counts().to_dict()
 
     if not labeled.empty:
         summary.partitions = append_to_partitions(labeled, live_dir)
@@ -321,6 +276,47 @@ def run_ingest(
 
     summary.seconds = time.perf_counter() - started
     return summary, labeled
+
+
+def reevaluate_alerts(
+    start: date,
+    end: date,
+    *,
+    history_paths: list[Path] | None = None,
+    live_dir: Path = LIVE_DIR,
+    industrial_path: Path = NATIONAL_INDUSTRIAL_CONTEXT_PATH,
+    facilities_path: Path = NATIONAL_FACILITIES_PATH,
+    alerts_path: Path = ALERTS_LATEST_PATH,
+    today: date | None = None,
+) -> pd.DataFrame:
+    """Evaluate every alert type over live detections already stored for [start, end]
+    -- after a threshold or alert-type change, without re-fetching anything. Anomaly
+    baselines are recomputed from strictly earlier days, so they match what ingestion
+    computed. alerts_latest.csv gets every alert evaluated; the history gets the new ones."""
+    today = today or datetime.now(timezone.utc).date()
+    history_paths = list(NATIONAL_LABELED_PARQUETS if history_paths is None else history_paths)
+    partitions = _live_partitions(live_dir)
+    if not partitions:
+        raise SystemExit(f"no live partitions in {live_dir}")
+    live = pd.concat([pd.read_parquet(p) for p in partitions], ignore_index=True)
+    live["acq_date"] = live["acq_date"].astype(str).str[:10]
+    historical = pd.concat([pd.read_parquet(p, columns=_STORE_COLUMNS) for p in history_paths], ignore_index=True)
+    historical["acq_date"] = historical["acq_date"].astype(str).str[:10]
+
+    in_window = live["acq_date"].between(start.isoformat(), end.isoformat()).to_numpy()
+    combined = pd.concat([historical, live[_STORE_COLUMNS]], ignore_index=True)
+    targets = pd.Series(np.r_[np.zeros(len(historical), bool), in_window], index=combined.index)
+    grid_lat, grid_lon = grid_keys(combined)
+    baselines = anomaly_baselines(combined, grid_lat, grid_lon, targets=targets)
+    batch = live[in_window].reset_index(drop=True)
+    batch["baseline_frp"] = baselines.loc[targets.to_numpy(), "baseline_frp"].to_numpy()
+    batch["prior_active_days"] = baselines.loc[targets.to_numpy(), "prior_active_days"].to_numpy()
+
+    alerts = build_alerts(
+        batch, combined, load_infrastructure_sites(industrial_path, facilities_path), complete_days(start, end, today)
+    )
+    publish_alerts(alerts, Path(alerts_path), Path(alerts_path).with_name("alerts_history.csv"), only_new=False)
+    return alerts
 
 
 def _map_is_stale(live_dir: Path, meta_path: Path) -> bool:
@@ -363,6 +359,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--lookback-days", type=int, default=RECURRENCE_LOOKBACK_DAYS,
                         help="recurrence look-back window; 0 = all history")
     parser.add_argument("--no-map", action="store_true", help="skip repacking the map points")
+    parser.add_argument("--alerts-only", action="store_true",
+                        help="re-evaluate alerts over live detections already stored for the window (no fetch)")
     return parser.parse_args()
 
 
@@ -372,7 +370,13 @@ if __name__ == "__main__":
     end = args.end or today
     start = args.start or end - timedelta(days=args.days - 1)
     with RunLock(LIVE_DIR / "ingest.lock"):
-        summary, _ = run_ingest(
-            start, end, lookback_days=args.lookback_days or None, repack_map=not args.no_map
-        )
-    print(summary.report())
+        if args.alerts_only:
+            alerts = reevaluate_alerts(start, end)
+            print(f"Alerts for stored detections {start}..{end}: {len(alerts):,}")
+            for alert_type in ALERT_TYPES:
+                print(f"  {alert_type:<26}{int((alerts['alert_type'] == alert_type).sum()):>6,}")
+        else:
+            summary, _ = run_ingest(
+                start, end, lookback_days=args.lookback_days or None, repack_map=not args.no_map
+            )
+            print(summary.report())

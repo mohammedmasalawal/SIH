@@ -133,3 +133,18 @@ def test_hotspots_source_names_the_file(client):
 
 def test_module_level_store_points_at_config_paths():
     assert map_store_module.map_store.points_path.name == "national_points.bin"
+
+
+def test_alerts_history_served_as_static_csv(monkeypatch, tmp_path):
+    import main
+
+    path = tmp_path / "alerts_history.csv"
+    path.write_text("latitude,longitude,acq_date\n22.1,69.1,2026-09-01\n")
+    monkeypatch.setattr(main, "ALERTS_HISTORY_PATH", path)
+    response = TestClient(app).get("/data/alerts_history.csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text.startswith("latitude,longitude")
+
+    monkeypatch.setattr(main, "ALERTS_HISTORY_PATH", tmp_path / "missing.csv")
+    assert TestClient(app).get("/data/alerts_history.csv").status_code == 404

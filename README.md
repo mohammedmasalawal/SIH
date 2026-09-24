@@ -42,6 +42,7 @@ python main.py                       # then open http://localhost:8000/
 - **Data path:** `training/pack_map_points.py` packs lon/lat (float32), row id (uint32), day index (uint16), class (uint8), and `is_anomalous` (uint8) — 16 bytes per detection, 30.2 MB raw / 15.5 MB gzipped (served pre-compressed from `/api/map/points.bin`). Points are stored in draw order (unknown → agricultural burning → wildfire → industrial → gas flare) so rare classes paint on top; the row id maps each point back to its parquet row. Repack whenever the parquets change — row ids are only valid against the files listed in the sidecar.
 - **Rendering:** MapLibre GL (CARTO dark-matter basemap) + deck.gl `ScatterplotLayer`; month range and class toggles filter on the GPU via `DataFilterExtension`, so filter changes never re-upload points. URL parameters `month=YYYY-MM`, `all=1`, `lat`, `lng`, `zoom` set the initial view.
 - **Click:** `/api/detection/{row_id}` reads that one row from the parquets with DuckDB (memory capped at `DUCKDB_MEMORY_LIMIT`); the server never loads the point set, so it stays ~300 MB with the model loaded.
+- **Alerts panel:** lists `alerts_history.csv` (see "Live ingestion") newest first — site, date, facility, FRP vs the site's normal; clicking one flies the map there, opens its popup, and switches the month so its detection is on screen. It is browser-only: it fetches `data/alerts_history.csv` relative to the page and builds the popup from the CSV row, with no API call. Locally the server serves that path straight from `training/data/live/alerts_history.csv`; on a static host, copy the file to `data/alerts_history.csv` next to `index.html`. (The detection points themselves still come from `/api/map/*`, so on a static host the panel works but the point layer doesn't.)
 - **Performance:** measured with all 1.89M points on screen, 1400×900: ~116 fps panning on an RTX 3050 laptop GPU, but ~19 fps on the same laptop's Intel UHD integrated GPU (one month: ~38 fps). Chrome on Windows laptops uses the integrated GPU by default — set Chrome to "High performance" under Windows Settings → System → Display → Graphics for smooth panning.
 
 ### Live ingestion
@@ -69,6 +70,25 @@ schtasks /Query /TN "Agninetra live ingest" /V /FO LIST
 ```
 
 Or in the Task Scheduler GUI: *Create Task* → General: name "Agninetra live ingest", "Run whether user is logged on or not" → Triggers: *New*, Daily, start 00:15, "Repeat task every 6 hours" for "Indefinitely" → Actions: *Start a program*, `C:\Users\Admin\Documents\Agninetra\training\run_ingest.cmd` → Settings: "Do not start a new instance" if already running. The FIRMS key is read from `.env`, so the task needs no extra environment. A running API server picks up each repack on the next request (the sidecar's modification time is checked).
+
+### Live alerts
+
+`training/alerts.py` raises four alert types on each ingest run (every alert has an `alert_type` and a stable `alert_id`, so re-evaluating a window never raises the same alert twice; alerts never change a label). **Every threshold below is an untested starting value** — none has been checked against verified ground truth. All live in `backend/config.py`.
+
+| `alert_type` | Fires when | Thresholds (config) | Extra fields |
+|---|---|---|---|
+| `industrial_anomaly` | an `is_anomalous` detection labelled `industrial` or `gas flare` (unchanged from the first version) | — (the `is_anomalous` rule) | FRP vs the site's normal, facility |
+| `fire_near_infrastructure` | an `agricultural burning` / `wildfire` detection within `INFRA_FIRE_MAX_DIST_M` (2 km) of a GEM oil/gas or coal power plant, oil/gas field or LNG terminal (`INFRA_GEM_FACILITY_TYPES`), an OSM refinery / oil & gas feature (`INFRA_OSM_INDUSTRIAL_TAGS`), or any OSM `power=plant` (`INFRA_INCLUDE_OSM_POWER_PLANTS`) | 2 km | facility name, kind, distance |
+| `new_unmapped_source` | a ~375 m cell with no known facility (OSM industrial, GEM heat/flare, coal mine, brick kiln) within `UNMAPPED_NO_FACILITY_WITHIN_M` that reaches `UNMAPPED_MIN_ACTIVE_DAYS` active days in the trailing `UNMAPPED_WINDOW_DAYS`, with at most `UNMAPPED_MAX_PRIOR_ACTIVE_DAYS` before that window; once per cell, ever | 2 km, 5 of 30 days, ≤1 day before | active days in 30, total active days, first seen |
+| `large_fire_event` | `LARGE_FIRE_MIN_DETECTIONS`+ detections within `LARGE_FIRE_RADIUS_M` on the same day (DBSCAN, so a cluster can chain beyond 5 km), any class; judged only on complete UTC days | 10 within 5 km | detection count, dominant class, total FRP |
+
+What the September 2026 backfill (1–23 Sep) says about these starting values:
+
+- **`fire_near_infrastructure` only ever matches solar/wind plants** as currently configured: an `agricultural burning`/`wildfire` label already requires no OSM industrial-context feature within 2 km, and that context includes refineries, oil/gas features and every non-solar/wind power plant — so only OSM solar/wind plants (excluded from that context) and GEM points can match, and in September no GEM facility did. All 128 September alerts are fires near OSM solar plants.
+- **`large_fire_event` is dominated by industrial complexes**: 243 of 263 September events were clusters labelled mostly `industrial` or `unknown` — steel, coal-belt and port-industrial sites (Odisha, Jharkhand, Chhattisgarh, Hazira) that cross 10 detections in 5 km most days; only 20 were `wildfire`/`agricultural burning`. Restricting the clustered detections by class would make it a wildfire/crop-fire alert.
+- `new_unmapped_source` raised 3, `industrial_anomaly` 110 (unchanged).
+
+Re-evaluate stored detections after changing a threshold (no re-fetch): `python -m training.ingest_latest --start 2026-09-01 --end 2026-09-23 --alerts-only`. The map's alerts panel shows a type badge per alert and filters by type.
 
 ### Gold verification set
 

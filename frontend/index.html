@@ -17,6 +17,16 @@
     <a class="subtle-link" href="/legacy/">Classic demo view</a>
   </section>
 
+  <section id="alerts-panel" class="panel" aria-labelledby="alerts-title">
+    <header class="alerts-header">
+      <h2 id="alerts-title">Alerts <span id="alerts-count" class="alerts-count">…</span></h2>
+      <button id="alerts-toggle" type="button" aria-controls="alerts-list" aria-expanded="true">Hide</button>
+    </header>
+    <p class="alerts-note">Newest first. Starting thresholds, not yet validated.</p>
+    <div id="alerts-filters" class="alerts-filters" role="group" aria-label="Filter alerts by type"></div>
+    <div id="alerts-list" class="alerts-list"><p class="alerts-empty">Loading alerts…</p></div>
+  </section>
+
   <section id="time-panel" class="panel" aria-label="Time">
     <button id="play" type="button" aria-label="Play months">&#9654;</button>
     <input id="month-slider" type="range" min="0" max="0" step="1" value="0" aria-label="Month" />
@@ -26,6 +36,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/deck.gl@9.1.14/dist.min.js"></script>
+  <script src="/static/js/alerts-panel.js"></script>
   <script src="/static/js/national-map.js"></script>
 </body>
 </html>

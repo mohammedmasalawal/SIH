@@ -25,17 +25,13 @@
   const hexToRgba = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).concat(255);
   const fmtCount = (n) => n.toLocaleString("en-US");
 
-  async function fetchJson(url) {
+  async function checked(url) {
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`${url}: ${response.status} ${await response.text()}`);
-    return response.json();
+    if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
+    return response;
   }
-
-  async function fetchPoints() {
-    const response = await fetch("/api/map/points.bin");
-    if (!response.ok) throw new Error(`/api/map/points.bin: ${response.status} ${await response.text()}`);
-    return response.arrayBuffer();
-  }
+  const fetchJson = async (url) => (await checked(url)).json();
+  const fetchPoints = async () => (await checked("/api/map/points.bin")).arrayBuffer();
 
   const map = new maplibregl.Map({
     container: "map",
@@ -44,8 +40,24 @@
     zoom: Number(params.get("zoom") ?? INDIA.zoom),
     attributionControl: { compact: true },
   });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
   const mapLoaded = new Promise((resolve) => map.once("load", resolve));
+
+  let popup = null;
+  function openPopup(lngLat, html) {
+    if (popup) popup.remove();
+    // closeOnClick off: MapLibre's own click event fires after deck's onClick for the
+    // same click, and would otherwise close the popup the moment it opens.
+    popup = new maplibregl.Popup({ maxWidth: "340px", closeOnClick: false }).setLngLat(lngLat).setHTML(html).addTo(map);
+    return popup;
+  }
+
+  // Alerts panel is static-file only, so it starts now and keeps working even if the
+  // point data / API below fail to load.
+  let classColors = null;
+  const colorFor = (label) => classColors?.[label] ?? "#6b6a65";
+  let selectAlertMonth = null; // set once the month list exists
+  const alertsReady = AlertsPanel.init({ map, openPopup, colorFor, onSelect: (alert) => selectAlertMonth?.(alert) });
 
   let meta, classesInfo, buffer;
   try {
@@ -53,12 +65,14 @@
       fetchJson("/api/map/meta"), fetchJson("/api/classes"), fetchPoints(), mapLoaded,
     ]);
   } catch (error) {
-    statusEl.textContent = "Failed to load: " + error.message;
+    statusEl.textContent = `Detections unavailable: ${error.message}. The alerts panel still works.`;
     statusEl.classList.add("error");
     console.error(error);
     return;
   }
   timings.fetched = performance.now();
+  classColors = classesInfo.colors_dark;
+  alertsReady.then(({ recolor }) => recolor());
 
   // --- unpack the struct-of-arrays binary (views, no copies) ---------------------
   const N = meta.count;
@@ -167,7 +181,6 @@
     });
   }
 
-  let popup = null;
   const overlay = new deck.MapboxOverlay({
     interleaved: true,
     pickingRadius: 5, // hit target larger than the 2-3 px marks
@@ -180,7 +193,7 @@
     },
     onClick: (info) => {
       if (info.layer && info.index >= 0) showDetection(rowIds[info.index], info.coordinate);
-      else if (popup) popup.remove(); // click on empty map closes it (see Popup options below)
+      else if (popup) popup.remove(); // click on empty map closes it (see openPopup)
     },
   });
   map.addControl(overlay);
@@ -295,14 +308,7 @@
   }
 
   async function showDetection(id, coordinate) {
-    if (popup) popup.remove();
-    // closeOnClick off: MapLibre's own click event fires after deck's onClick for the
-    // same click, and would otherwise close the popup the moment it opens.
-    popup = new maplibregl.Popup({ maxWidth: "340px", closeOnClick: false })
-      .setLngLat(coordinate)
-      .setHTML('<div class="detection">Loading…</div>')
-      .addTo(map);
-    const target = popup;
+    const target = openPopup(coordinate, '<div class="detection">Loading…</div>');
     try {
       const record = await fetchJson(`/api/detection/${id}`);
       if (target === popup) target.setHTML(detectionHtml(record));
@@ -310,6 +316,15 @@
       if (target === popup) target.setHTML(`<div class="detection">Could not load detection ${id}: ${esc(error.message)}</div>`);
     }
   }
+
+  // Clicking an alert shows its month, so its detection is on screen under the popup.
+  selectAlertMonth = (alert) => {
+    const index = months.findIndex((m) => m.key === alert.date.slice(0, 7));
+    if (state.allYear || index < 0 || index === state.monthIndex) return;
+    stopPlay();
+    state.monthIndex = index;
+    update();
+  };
 
   update();
   // Debug/measurement handle (used by the headless benchmark; harmless otherwise).
