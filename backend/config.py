@@ -81,7 +81,7 @@ NATIONAL_PROJECTED_CRS = "EPSG:7755"
 INDIA_BOUNDARY_PATH = ROOT_DIR / "data" / "external" / "boundaries" / "india_states.parquet"
 
 # --- Training artifacts ------------------------------------------------------------
-MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model.pkl"
+MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model_400k.pkl"
 EVAL_SUMMARY_PATH = ROOT_DIR / "training" / "artifacts" / "eval_summary.json"
 GEM_FACILITIES_PATH = ROOT_DIR / "data" / "external" / "gem_facilities_india.csv"
 # Neither exists yet as of this writing -- GEM's Global Coal Mine Tracker isn't a
@@ -133,10 +133,33 @@ CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]  # placeholder
 # --- frontend/ (served by main.py as static files -- same-origin, no CORS needed) ---
 FRONTEND_DIR = ROOT_DIR / "frontend"
 DEMO_HOTSPOTS_PATH = ROOT_DIR / "data" / "sample" / "demo_hotspots.csv"
+# Class colours, one hue per class in both modes: light steps for the Leaflet page's
+# light OSM tiles, dark steps for the national map's dark basemap. Four hues are
+# on screen together in a scatter, so every pair must separate: blue/magenta/
+# yellow/green is the only 4-hue set of the dataviz reference palette that passes
+# the all-pairs normal-vision floor on the dark surface (CVD 6.9, in the band that
+# requires secondary encoding -- the class toggles and click popup name the class).
+# Red is deliberately absent: it fails against both yellow and magenta.
 CLASS_COLORS = {
-    "industrial": "#e6550d",
-    "gas flare": "#fdae6b",
-    "agricultural burning": "#8c6d31",
-    "wildfire": "#d62728",
-    "unknown": "#7f7f7f",
+    "industrial": "#2a78d6",
+    "gas flare": "#e87ba4",
+    "agricultural burning": "#eda100",
+    "wildfire": "#008300",
+    "unknown": "#8f8e89",
 }
+CLASS_COLORS_DARK = {
+    "industrial": "#3987e5",
+    "gas flare": "#d55181",
+    "agricultural burning": "#c98500",
+    "wildfire": "#008300",
+    "unknown": "#6b6a65",
+}
+
+# --- National map (training/pack_map_points.py -> backend/map_store.py) -------------
+MAP_POINTS_PATH = ROOT_DIR / "data" / "map" / "national_points.bin"
+MAP_POINTS_META_PATH = ROOT_DIR / "data" / "map" / "national_points.json"
+NATIONAL_LABELED_PARQUETS = tuple(
+    ROOT_DIR / "training" / "data" / f"labeled_hotspots_india_{period}_coalfix.parquet"
+    for period in ("12mo_q1", "12mo_q2", "2026-03", "2026-04", "2026-05", "12mo_q4")
+)
+DUCKDB_MEMORY_LIMIT = "256MB"

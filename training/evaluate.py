@@ -1,4 +1,4 @@
-"""STEP 3: score training/artifacts/model.pkl -> training/artifacts/eval_summary.json.
+"""STEP 3: score training/artifacts/model_400k.pkl -> training/artifacts/eval_summary.json.
 
 Reproduces the model's own held-out set deterministically (same CSV + same
 random_seed recorded in the artifact's metadata, via the same

@@ -3,47 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agninetra Thermal Classifier</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-  <link rel="stylesheet" href="static/css/style.css" />
+  <title>Agninetra National Map</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="/static/css/national-map.css" />
 </head>
 <body>
   <div id="map"></div>
-  <div id="legend" class="panel"><h4>Classes</h4></div>
-  <div id="filters" class="panel"><h4>Filter</h4></div>
-  <div id="status" class="panel">Loading...</div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="static/js/api.js"></script>
-  <script src="static/js/legend.js"></script>
-  <script src="static/js/filters.js"></script>
-  <script src="static/js/map.js"></script>
-  <script>
-    async function main() {
-      const statusEl = document.getElementById("status");
-      const map = MapView.initMap();
+  <section id="classes-panel" class="panel" aria-label="Classes">
+    <h1>Thermal detections, India</h1>
+    <div id="class-toggles"></div>
+    <p id="status" role="status">Loading detections...</p>
+    <a class="subtle-link" href="/legacy/">Classic demo view</a>
+  </section>
 
-      const [{ classes, colors }, { hotspots, source }, health] = await Promise.all([
-        Api.fetchClasses(),
-        Api.fetchHotspots(),
-        Api.fetchHealth(),
-      ]);
+  <section id="time-panel" class="panel" aria-label="Time">
+    <button id="play" type="button" aria-label="Play months">&#9654;</button>
+    <input id="month-slider" type="range" min="0" max="0" step="1" value="0" aria-label="Month" />
+    <output id="month-label" for="month-slider"></output>
+    <label class="all-year"><input id="all-year" type="checkbox" /> All year</label>
+  </section>
 
-      Legend.renderLegend(colors);
-      const markersByLabel = MapView.plotHotspots(map, hotspots, colors);
-      Filters.renderFilters(classes, (active) => MapView.applyFilter(map, markersByLabel, active));
-
-      statusEl.textContent =
-        `${hotspots.length} hotspots (source: ${source}) -- ` +
-        `model ${health.model_loaded ? "loaded" : "not trained yet, using rules"}`;
-    }
-
-    main().catch((error) => {
-      const statusEl = document.getElementById("status");
-      statusEl.textContent = "Failed to load: " + error.message;
-      statusEl.classList.add("error");
-      console.error(error);
-    });
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/deck.gl@9.1.14/dist.min.js"></script>
+  <script src="/static/js/national-map.js"></script>
 </body>
 </html>

@@ -30,6 +30,20 @@ python make_gold_sample.py --labeled training/data/labeled_hotspots.csv
 
 `recurrence_count`, `first_seen`, `last_seen`, and `is_anomalous` are all computed over the full input FIRMS CSV, including whatever date range you pass in. That's correct for labelling, but if that CSV spans your eval period, Teammate 2 must recompute all four from pre-split (training-only) data before using them as model inputs, or they will leak future detections into the label/flag for past rows.
 
+### National map
+
+`/` renders every national detection (1.89M) on the GPU (`frontend/index.html`); the original Leaflet page with the 21-row synthetic demo is at `/legacy` (`frontend/legacy/index.html`). After (re)building the labeled parquets, pack them and start the server:
+
+```powershell
+python -m training.pack_map_points   # -> data/map/national_points.bin (+ .gz, .json sidecar)
+python main.py                       # then open http://localhost:8000/
+```
+
+- **Data path:** `training/pack_map_points.py` packs lon/lat (float32), row id (uint32), day index (uint16), class (uint8), and `is_anomalous` (uint8) — 16 bytes per detection, 30.2 MB raw / 15.5 MB gzipped (served pre-compressed from `/api/map/points.bin`). Points are stored in draw order (unknown → agricultural burning → wildfire → industrial → gas flare) so rare classes paint on top; the row id maps each point back to its parquet row. Repack whenever the parquets change — row ids are only valid against the files listed in the sidecar.
+- **Rendering:** MapLibre GL (CARTO dark-matter basemap) + deck.gl `ScatterplotLayer`; month range and class toggles filter on the GPU via `DataFilterExtension`, so filter changes never re-upload points. URL parameters `month=YYYY-MM`, `all=1`, `lat`, `lng`, `zoom` set the initial view.
+- **Click:** `/api/detection/{row_id}` reads that one row from the parquets with DuckDB (memory capped at `DUCKDB_MEMORY_LIMIT`); the server never loads the point set, so it stays ~300 MB with the model loaded.
+- **Performance:** measured with all 1.89M points on screen, 1400×900: ~116 fps panning on an RTX 3050 laptop GPU, but ~19 fps on the same laptop's Intel UHD integrated GPU (one month: ~38 fps). Chrome on Windows laptops uses the integrated GPU by default — set Chrome to "High performance" under Windows Settings → System → Display → Graphics for smooth panning.
+
 ### Gold verification set
 
 `training/data/gold_sample.csv` (150 detections, 30 per class, at most one per ~375m grid cell, 10 drawn from `is_anomalous` cells, built with a fixed seed by `make_gold_sample.py`) is for manual satellite-imagery review — it deliberately withholds the `label` column. The silver label each `sample_id` was drawn with lives separately in `training/data/gold_key.csv`, so a reviewer can't see the rule's answer while checking it.

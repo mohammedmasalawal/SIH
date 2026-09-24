@@ -1,4 +1,4 @@
-"""STEP 2: fit a classifier on labeled_hotspots.csv -> training/artifacts/model.pkl.
+"""STEP 2: fit a classifier on labeled_hotspots.csv -> training/artifacts/model_400k.pkl.
 
 Excludes label == "unknown" (never a supervised training target -- see README) and
 excludes every gold-verification cell (see _load_gold_cell_ids) -- a gold cell inside

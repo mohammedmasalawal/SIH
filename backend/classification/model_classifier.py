@@ -1,4 +1,4 @@
-"""Loads training/artifacts/model.pkl (if present and valid) and predicts live.
+"""Loads training/artifacts/model_400k.pkl (if present and valid) and predicts live.
 
 Every failure mode here -- missing file, corrupt file, wrong shape -- degrades to
 "no model available" rather than raising, so classifier.py can fall back to
@@ -25,7 +25,7 @@ class ModelUnavailable(RuntimeError):
 
 
 def load_artifact(path: str | Path = MODEL_ARTIFACT_PATH) -> dict | None:
-    """Load and validate a model.pkl artifact, returning None on any problem.
+    """Load and validate a trained model artifact, returning None on any problem.
 
     Deliberately broad exception handling: joblib/pickle can raise many different
     exception types for a corrupt or version-incompatible file (UnpicklingError,

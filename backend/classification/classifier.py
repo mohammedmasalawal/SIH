@@ -17,7 +17,7 @@ from backend.classification import rules
 from backend.classification.model_classifier import ModelClassifier
 
 # Loaded once at process start, not per-request -- re-reading and re-validating
-# model.pkl on every classify call would be wasted work for an artifact that only
+# the model artifact on every classify call would be wasted work for an artifact that only
 # changes when someone re-runs training/train_model.py and restarts the process.
 _model_classifier = ModelClassifier()
 

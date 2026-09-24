@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gold-set review</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #dfe3e8;
+    --text: #1c2128;
+    --muted: #5b6472;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+    --chip-bg: #eef1f5;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --border: #2a2f3a;
+      --text: #e6e9ef;
+      --muted: #9aa4b2;
+      --accent: #5b8def;
+      --accent-text: #0f1115;
+      --ok: #4caf6b;
+      --warn: #d3a13e;
+      --bad: #f0655f;
+      --chip-bg: #1f2430;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 20px 16px 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  /* --- file loader --- */
+  .filerow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  input[type=file] { color: var(--text); font-size: 13px; max-width: 100%; }
+  .status-list { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; }
+  .status-list li { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  .dot.pending { background: var(--muted); }
+
+  /* --- toolbar --- */
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
+    justify-content: space-between; margin-bottom: 16px;
+  }
+  .toolbar .left, .toolbar .right { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  label.filter { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); user-select: none; }
+  label.filter input { accent-color: var(--accent); }
+  .progress { font-size: 13px; color: var(--muted); }
+  .progress b { color: var(--text); }
+
+  button {
+    font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); padding: 7px 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.ghost { background: transparent; }
+  button.small { padding: 4px 9px; font-size: 12px; }
+
+  /* --- row card --- */
+  #empty-state { color: var(--muted); text-align: center; padding: 40px 20px; }
+  #review { display: none; }
+  .rowhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .sample-id { font: 700 20px/1 var(--mono); }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px;
+    background: var(--chip-bg); color: var(--muted); white-space: nowrap;
+  }
+  .badge.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .badge.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .badge.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+
+  .meta-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px 18px; margin: 14px 0;
+  }
+  .meta-grid .k { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+  .meta-grid .v { font: 600 14px/1.3 var(--mono); word-break: break-word; }
+
+  .dnbr-box {
+    border: 1px dashed var(--border); border-radius: 8px; padding: 12px 14px; margin: 14px 0;
+    font-size: 13px;
+  }
+  .dnbr-box .dnbr-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; }
+  .dnbr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px 16px; }
+  .dnbr-grid .k { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .dnbr-grid .v { font: 600 13px var(--mono); }
+  .skip-reason { color: var(--muted); font-style: italic; }
+
+  .maps-btn { width: 100%; margin: 4px 0 18px; padding: 11px; font-weight: 600; }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+  textarea, select {
+    width: 100%; font: inherit; padding: 9px 10px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  textarea { min-height: 64px; resize: vertical; }
+  .segmented { display: flex; gap: 8px; }
+  .segmented button {
+    flex: 1; padding: 9px; font-size: 13px; font-weight: 600;
+  }
+  .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .conf-high[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); }
+  .conf-medium[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); }
+  .conf-low[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); }
+
+  .nav-row { display: flex; gap: 10px; margin-top: 18px; }
+  .nav-row button { flex: 1; padding: 12px; font-weight: 600; }
+
+  .hint { font-size: 12px; color: var(--muted); margin-top: 14px; text-align: center; }
+  kbd {
+    font: 11px var(--mono); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 5px; background: var(--chip-bg);
+  }
+  .footer-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .autosave-note { font-size: 12px; color: var(--muted); }
+  .autosave-note.flash { color: var(--ok); }
+  a.link-btn { color: var(--muted); font-size: 12px; text-decoration: underline; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Gold-set review</h1>
+  <div class="sub">Blind manual verification — runs entirely in this browser tab, nothing is uploaded anywhere.</div>
+
+  <div class="panel" id="loader-panel">
+    <h2>1. Load files</h2>
+    <div class="filerow">
+      <input type="file" id="filePicker" accept=".csv" multiple>
+      <span class="sub" style="margin:0;">Select <code>gold_sample.csv</code> and <code>dnbr_results.csv</code> together (files are told apart by their columns, not their names).</span>
+    </div>
+    <ul class="status-list">
+      <li><span class="dot pending" id="dot-gold"></span><span id="status-gold">gold_sample.csv — not loaded</span></li>
+      <li><span class="dot pending" id="dot-dnbr"></span><span id="status-dnbr">dnbr_results.csv — not loaded (optional, but needed for the "dNBR skipped" filter)</span></li>
+    </ul>
+  </div>
+
+  <div class="toolbar" id="toolbar" style="display:none;">
+    <div class="left">
+      <label class="filter"><input type="checkbox" id="filterSkipped" disabled> dNBR-skipped rows only</label>
+      <span class="progress" id="progress"></span>
+    </div>
+    <div class="right">
+      <button id="exportBtn" class="small">Export CSV</button>
+      <a class="link-btn" id="clearBtn">clear saved progress</a>
+    </div>
+  </div>
+
+  <div id="empty-state">Load <code>gold_sample.csv</code> above to begin.</div>
+
+  <div class="panel" id="review">
+    <div class="rowhead">
+      <span class="sample-id" id="f-sample-id">—</span>
+      <span class="badge" id="f-reviewed-badge">not reviewed</span>
+    </div>
+
+    <div class="meta-grid">
+      <div><div class="k">Latitude</div><div class="v" id="f-lat">—</div></div>
+      <div><div class="k">Longitude</div><div class="v" id="f-lon">—</div></div>
+      <div><div class="k">Detection date (UTC)</div><div class="v" id="f-date">—</div></div>
+      <div><div class="k">Time UTC / IST</div><div class="v" id="f-time">—</div></div>
+    </div>
+
+    <div class="dnbr-box" id="dnbr-box">
+      <div class="dnbr-head"><span>dNBR (burn-ratio change)</span><span class="badge" id="dnbr-badge">no data</span></div>
+      <div id="dnbr-body" class="skip-reason">dnbr_results.csv not loaded.</div>
+    </div>
+
+    <button class="maps-btn primary" id="mapsBtn">Open satellite view (Google Maps) ↗</button>
+
+    <div class="field">
+      <label for="f-structure">Structure seen</label>
+      <textarea id="f-structure" placeholder="What's visible at the pin — free text"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="f-label">Verified label</label>
+      <select id="f-label">
+        <option value="">— not yet verified —</option>
+        <option value="agricultural burning">agricultural burning</option>
+        <option value="gas flare">gas flare</option>
+        <option value="industrial">industrial</option>
+        <option value="wildfire">wildfire</option>
+        <option value="unknown">unknown</option>
+        <option value="uncertain">uncertain</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Confidence</label>
+      <div class="segmented" id="f-confidence">
+        <button type="button" class="conf-high" data-val="high">High</button>
+        <button type="button" class="conf-medium" data-val="medium">Medium</button>
+        <button type="button" class="conf-low" data-val="low">Low</button>
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <button id="prevBtn">← Previous</button>
+      <button id="nextBtn" class="primary">Next →</button>
+    </div>
+
+    <div class="footer-row">
+      <div class="autosave-note" id="autosaveNote">&nbsp;</div>
+    </div>
+
+    <div class="hint">
+      <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> navigate anywhere &nbsp;·&nbsp;
+      <kbd>←</kbd>/<kbd>→</kbd> or <kbd>P</kbd>/<kbd>N</kbd> when not typing &nbsp;·&nbsp;
+      <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in notes = save &amp; next &nbsp;·&nbsp;
+      <kbd>M</kbd> open map
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "agninetra-gold-review-v1";
+  var POSITION_KEY = "agninetra-gold-review-pos-v1";
+  var VERIFIED_LABELS = ["agricultural burning", "gas flare", "industrial", "wildfire", "unknown", "uncertain"];
+  var CONFIDENCE_VALUES = ["high", "medium", "low"];
+
+  // ---- state -------------------------------------------------------------
+  var goldOrder = [];          // sample_id[] in gold_sample.csv row order
+  var goldRows = {};           // sample_id -> row object from gold_sample.csv
+  var dnbrRows = {};           // sample_id -> row object from dnbr_results.csv
+  var dnbrLoaded = false;
+  var answers = loadAnswers(); // sample_id -> {structure_seen, verified_label, confidence}
+  var filterSkippedOnly = false;
+  var filteredOrder = [];
+  var currentIndex = 0;
+
+  // ---- tiny RFC4180-ish CSV parser (handles quoted fields w/ commas) ----
+  function parseCSV(text) {
+    var rows = [], row = [], field = "", inQuotes = false, i = 0, len = text.length;
+    while (i < len) {
+      var c = text.charAt(i);
+      if (inQuotes) {
+        if (c === '"') {
+          if (text.charAt(i + 1) === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if (c === '"') { inQuotes = true; i++; continue; }
+      if (c === ",") { row.push(field); field = ""; i++; continue; }
+      if (c === "\r") { i++; continue; }
+      if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+      field += c; i++;
+    }
+    if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+    // drop a trailing fully-empty line (common at EOF)
+    if (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === "") rows.pop();
+    return rows;
+  }
+  function rowsToObjects(rows) {
+    if (!rows.length) return { header: [], list: [] };
+    var header = rows[0].map(function (h) { return h.trim(); });
+    var list = [];
+    for (var r = 1; r < rows.length; r++) {
+      var cells = rows[r];
+      var obj = {};
+      for (var c = 0; c < header.length; c++) obj[header[c]] = cells[c] !== undefined ? cells[c] : "";
+      list.push(obj);
+    }
+    return { header: header, list: list };
+  }
+
+  function csvEscape(v) {
+    v = v === null || v === undefined ? "" : String(v);
+    if (/[",\r\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }
+
+  // ---- localStorage --------------------------------------------------
+  function loadAnswers() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+  function saveAnswers() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(answers)); } catch (e) {}
+  }
+  function loadPosition() {
+    try {
+      var raw = localStorage.getItem(POSITION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  function savePosition() {
+    try {
+      localStorage.setItem(POSITION_KEY, JSON.stringify({
+        sampleId: filteredOrder[currentIndex] || null,
+        filterSkippedOnly: filterSkippedOnly
+      }));
+    } catch (e) {}
+  }
+
+  function normalizeLabel(v) {
+    v = (v || "").trim().toLowerCase();
+    return VERIFIED_LABELS.indexOf(v) !== -1 ? v : "";
+  }
+  function normalizeConfidence(v) {
+    v = (v || "").trim().toLowerCase();
+    return CONFIDENCE_VALUES.indexOf(v) !== -1 ? v : "";
+  }
+
+  function currentAnswer(sampleId) {
+    if (answers[sampleId]) return answers[sampleId];
+    var row = goldRows[sampleId] || {};
+    return {
+      structure_seen: row.structure_seen || "",
+      verified_label: normalizeLabel(row.verified_label),
+      confidence: normalizeConfidence(row.confidence)
+    };
+  }
+
+  // ---- file loading -----------------------------------------------------
+  var filePicker = document.getElementById("filePicker");
+  filePicker.addEventListener("change", function (e) {
+    var files = Array.prototype.slice.call(e.target.files || []);
+    files.forEach(readOneFile);
+  });
+
+  function readOneFile(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var rows = parseCSV(String(reader.result));
+      var parsed = rowsToObjects(rows);
+      if (parsed.header.indexOf("maps_link") !== -1 && parsed.header.indexOf("sample_id") !== -1) {
+        loadGold(parsed.list);
+      } else if (parsed.header.indexOf("dnbr_informative") !== -1 && parsed.header.indexOf("sample_id") !== -1) {
+        loadDnbr(parsed.list);
+      } else {
+        alert('"' + file.name + '" was not recognized as gold_sample.csv or dnbr_results.csv (checked by column headers, not filename) and was ignored. The gold silver-label file (gold_key.csv) is never read by this tool.');
+      }
+    };
+    reader.onerror = function () {
+      alert("Could not read \"" + file.name + "\".");
+    };
+    reader.readAsText(file);
+  }
+
+  function loadGold(list) {
+    goldOrder = [];
+    goldRows = {};
+    list.forEach(function (row) {
+      if (!row.sample_id) return;
+      goldOrder.push(row.sample_id);
+      goldRows[row.sample_id] = row;
+    });
+    document.getElementById("dot-gold").className = "dot ok";
+    document.getElementById("status-gold").textContent =
+      "gold_sample.csv — loaded, " + goldOrder.length + " rows";
+    afterFilesChanged();
+  }
+
+  function loadDnbr(list) {
+    dnbrRows = {};
+    list.forEach(function (row) {
+      if (!row.sample_id) return;
+      row._informative = String(row.dnbr_informative).trim().toLowerCase() === "true";
+      dnbrRows[row.sample_id] = row;
+    });
+    dnbrLoaded = true;
+    document.getElementById("dot-dnbr").className = "dot ok";
+    document.getElementById("status-dnbr").textContent =
+      "dnbr_results.csv — loaded, " + list.length + " rows";
+    document.getElementById("filterSkipped").disabled = false;
+    afterFilesChanged();
+  }
+
+  function afterFilesChanged() {
+    if (!goldOrder.length) return;
+    document.getElementById("toolbar").style.display = "flex";
+    document.getElementById("empty-state").style.display = "none";
+    document.getElementById("review").style.display = "block";
+    rebuildFilteredOrder();
+
+    var pos = loadPosition();
+    var startIndex = 0;
+    if (pos) {
+      filterSkippedOnly = !!pos.filterSkippedOnly && dnbrLoaded;
+      document.getElementById("filterSkipped").checked = filterSkippedOnly;
+      rebuildFilteredOrder();
+      if (pos.sampleId) {
+        var idx = filteredOrder.indexOf(pos.sampleId);
+        if (idx !== -1) startIndex = idx;
+      }
+    }
+    currentIndex = Math.min(startIndex, Math.max(filteredOrder.length - 1, 0));
+    renderRow();
+  }
+
+  function rebuildFilteredOrder() {
+    if (filterSkippedOnly && dnbrLoaded) {
+      filteredOrder = goldOrder.filter(function (id) {
+        var d = dnbrRows[id];
+        return d && d._informative === false;
+      });
+    } else {
+      filteredOrder = goldOrder.slice();
+    }
+  }
+
+  // ---- rendering ----------------------------------------------------
+  var els = {
+    sampleId: document.getElementById("f-sample-id"),
+    reviewedBadge: document.getElementById("f-reviewed-badge"),
+    lat: document.getElementById("f-lat"),
+    lon: document.getElementById("f-lon"),
+    date: document.getElementById("f-date"),
+    time: document.getElementById("f-time"),
+    dnbrBadge: document.getElementById("dnbr-badge"),
+    dnbrBody: document.getElementById("dnbr-body"),
+    mapsBtn: document.getElementById("mapsBtn"),
+    structure: document.getElementById("f-structure"),
+    label: document.getElementById("f-label"),
+    confidence: document.getElementById("f-confidence"),
+    progress: document.getElementById("progress"),
+    autosaveNote: document.getElementById("autosaveNote")
+  };
+
+  function fmtNum(v, digits) {
+    var n = parseFloat(v);
+    return isNaN(n) ? "—" : n.toFixed(digits === undefined ? 4 : digits);
+  }
+
+  function renderRow() {
+    if (!filteredOrder.length) {
+      document.getElementById("review").style.display = "none";
+      document.getElementById("empty-state").style.display = "block";
+      document.getElementById("empty-state").textContent = filterSkippedOnly
+        ? "No rows match the dNBR-skipped filter."
+        : "No rows loaded.";
+      updateProgress();
+      return;
+    }
+    document.getElementById("review").style.display = "block";
+    document.getElementById("empty-state").style.display = "none";
+
+    var id = filteredOrder[currentIndex];
+    var row = goldRows[id] || {};
+    var ans = currentAnswer(id);
+
+    els.sampleId.textContent = id;
+    els.lat.textContent = row.latitude || "—";
+    els.lon.textContent = row.longitude || "—";
+    els.date.textContent = row.acq_date || "—";
+    var timeUtc = row.acq_time ? String(row.acq_time).padStart(4, "0").replace(/(\d{2})(\d{2})/, "$1:$2") : "—";
+    els.time.textContent = timeUtc + " UTC  /  " + (row.acq_time_ist || "—") + " IST";
+
+    renderDnbr(id);
+
+    els.mapsBtn.onclick = function () {
+      if (row.maps_link) window.open(row.maps_link, "_blank", "noopener,noreferrer");
+    };
+    els.mapsBtn.disabled = !row.maps_link;
+
+    els.structure.value = ans.structure_seen || "";
+    els.label.value = ans.verified_label || "";
+    setConfidenceUI(ans.confidence || "");
+
+    var reviewed = !!ans.verified_label;
+    els.reviewedBadge.textContent = reviewed ? "reviewed" : "not reviewed";
+    els.reviewedBadge.className = "badge " + (reviewed ? "ok" : "");
+
+    els.autosaveNote.textContent = " ";
+    updateProgress();
+    savePosition();
+  }
+
+  function renderDnbr(id) {
+    if (!dnbrLoaded) {
+      els.dnbrBadge.textContent = "no data";
+      els.dnbrBadge.className = "badge";
+      els.dnbrBody.className = "skip-reason";
+      els.dnbrBody.textContent = "dnbr_results.csv not loaded.";
+      return;
+    }
+    var d = dnbrRows[id];
+    if (!d) {
+      els.dnbrBadge.textContent = "no record";
+      els.dnbrBadge.className = "badge warn";
+      els.dnbrBody.className = "skip-reason";
+      els.dnbrBody.textContent = "No dNBR row found for " + id + ".";
+      return;
+    }
+    if (!d._informative) {
+      els.dnbrBadge.textContent = "skipped";
+      els.dnbrBadge.className = "badge warn";
+      els.dnbrBody.className = "skip-reason";
+      els.dnbrBody.textContent = d.status || "dNBR not computed for this point.";
+      return;
+    }
+    els.dnbrBadge.textContent = "informative";
+    els.dnbrBadge.className = "badge ok";
+    var grid = document.createElement("div");
+    grid.className = "dnbr-grid";
+    var fields = [
+      ["dNBR", fmtNum(d.dnbr)],
+      ["Burn evidence", d.burn_evidence || "—"],
+      ["NBR before", fmtNum(d.nbr_before) + " (" + (d.date_before || "—") + ")"],
+      ["NBR after", fmtNum(d.nbr_after) + " (" + (d.date_after || "—") + ")"],
+      ["Days before/after", (d.days_before || "—") + " / " + (d.days_after || "—")],
+      ["Clear scenes used", d.n_clear_scenes || "—"],
+      ["NBR before (p50)", fmtNum(d.nbr_before_p50)],
+      ["NBR after (p10)", fmtNum(d.nbr_after_p10)],
+      ["dNBR (p10)", fmtNum(d.dnbr_p10)]
+    ];
+    fields.forEach(function (pair) {
+      var k = document.createElement("div"); k.className = "k"; k.textContent = pair[0];
+      var v = document.createElement("div"); v.className = "v"; v.textContent = pair[1];
+      grid.appendChild(k); grid.appendChild(v);
+    });
+    els.dnbrBody.className = "";
+    els.dnbrBody.innerHTML = "";
+    els.dnbrBody.appendChild(grid);
+  }
+
+  function setConfidenceUI(val) {
+    var buttons = els.confidence.querySelectorAll("button");
+    buttons.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-val") === val ? "true" : "false");
+    });
+  }
+
+  function updateProgress() {
+    var reviewedCount = goldOrder.filter(function (id) {
+      return !!currentAnswer(id).verified_label;
+    }).length;
+    var pos = filteredOrder.length ? (currentIndex + 1) : 0;
+    els.progress.innerHTML =
+      "<b>" + pos + "</b> / " + filteredOrder.length +
+      (filterSkippedOnly ? " (dNBR-skipped filter)" : "") +
+      " &nbsp;·&nbsp; <b>" + reviewedCount + "</b> / " + goldOrder.length + " reviewed overall";
+  }
+
+  // ---- editing / autosave --------------------------------------------
+  function persistCurrent() {
+    if (!filteredOrder.length) return;
+    var id = filteredOrder[currentIndex];
+    answers[id] = {
+      structure_seen: els.structure.value,
+      verified_label: els.label.value,
+      confidence: getConfidenceUI()
+    };
+    saveAnswers();
+    els.autosaveNote.textContent = "saved " + new Date().toLocaleTimeString();
+    els.autosaveNote.className = "autosave-note flash";
+    var reviewed = !!answers[id].verified_label;
+    els.reviewedBadge.textContent = reviewed ? "reviewed" : "not reviewed";
+    els.reviewedBadge.className = "badge " + (reviewed ? "ok" : "");
+    updateProgress();
+  }
+
+  function getConfidenceUI() {
+    var pressed = els.confidence.querySelector('button[aria-pressed="true"]');
+    return pressed ? pressed.getAttribute("data-val") : "";
+  }
+
+  var structureDebounce = null;
+  els.structure.addEventListener("input", function () {
+    clearTimeout(structureDebounce);
+    structureDebounce = setTimeout(persistCurrent, 250);
+  });
+  els.label.addEventListener("change", persistCurrent);
+  els.confidence.addEventListener("click", function (e) {
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    var already = btn.getAttribute("aria-pressed") === "true";
+    setConfidenceUI(already ? "" : btn.getAttribute("data-val"));
+    persistCurrent();
+  });
+
+  // ---- navigation -----------------------------------------------------
+  function goNext() {
+    if (!filteredOrder.length) return;
+    persistCurrent();
+    currentIndex = Math.min(currentIndex + 1, filteredOrder.length - 1);
+    renderRow();
+  }
+  function goPrev() {
+    if (!filteredOrder.length) return;
+    persistCurrent();
+    currentIndex = Math.max(currentIndex - 1, 0);
+    renderRow();
+  }
+  document.getElementById("nextBtn").addEventListener("click", goNext);
+  document.getElementById("prevBtn").addEventListener("click", goPrev);
+
+  document.getElementById("filterSkipped").addEventListener("change", function (e) {
+    filterSkippedOnly = e.target.checked;
+    rebuildFilteredOrder();
+    currentIndex = 0;
+    renderRow();
+  });
+
+  // ---- keyboard shortcuts ----------------------------------------------
+  document.addEventListener("keydown", function (e) {
+    var tag = document.activeElement ? document.activeElement.tagName : "";
+    var inField = tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT";
+
+    if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); goNext(); return; }
+    if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); goPrev(); return; }
+
+    if (inField) {
+      if (tag === "TEXTAREA" && (e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault(); goNext();
+      }
+      return;
+    }
+    var k = e.key.toLowerCase();
+    if (e.key === "ArrowRight" || k === "n") { e.preventDefault(); goNext(); }
+    else if (e.key === "ArrowLeft" || k === "p") { e.preventDefault(); goPrev(); }
+    else if (k === "m") { els.mapsBtn.click(); }
+  });
+
+  // ---- export -----------------------------------------------------------
+  document.getElementById("exportBtn").addEventListener("click", function () {
+    if (!goldOrder.length) { alert("Load gold_sample.csv first."); return; }
+    persistCurrent();
+    var lines = ["sample_id,structure_seen,verified_label,confidence"];
+    goldOrder.forEach(function (id) {
+      var a = currentAnswer(id);
+      lines.push([id, csvEscape(a.structure_seen), csvEscape(a.verified_label), csvEscape(a.confidence)].join(","));
+    });
+    var blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = "gold_verified.csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+  document.getElementById("clearBtn").addEventListener("click", function () {
+    if (!confirm("Clear all saved review progress from this browser? This cannot be undone (export a CSV first if you want a copy).")) return;
+    answers = {};
+    saveAnswers();
+    try { localStorage.removeItem(POSITION_KEY); } catch (e) {}
+    renderRow();
+  });
+
+})();
+</script>
+</body>
+</html>

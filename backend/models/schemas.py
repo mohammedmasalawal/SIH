@@ -30,6 +30,8 @@ class ClassifyRequest(BaseModel):
     nearest_flare_facility_type: str | None = None
     dist_to_heat_industry_m: float | None = None
     nearest_heat_facility_type: str | None = None
+    dist_to_coal_mine_m: float | None = None
+    nearest_coal_source: str | None = None
     landcover_class: str | None = None
     recurrence_count: int = 1
     is_anomalous: bool = False
@@ -41,7 +43,7 @@ class ClassifyResponse(BaseModel):
     # (backend/classification/classifier.py), not the batch training/build_labels.py ->
     # rules.apply_rules() contract, so it never returns "conflict": classify_hotspot()
     # falls back to rules.classify() (single label or "unknown"), never apply_rules().
-    # "model" appears only when a trained model.pkl is loaded and predict() succeeds.
+    # "model" appears only when MODEL_ARTIFACT_PATH is loaded and predict() succeeds.
     label_source: str
     probabilities: dict[str, float] | None = None
     model_version: str | None = None
@@ -66,9 +68,42 @@ class HotspotRecord(BaseModel):
 
 class HotspotsResponse(BaseModel):
     hotspots: list[HotspotRecord]
-    source: str  # e.g. "demo" -- data/sample/demo_hotspots.csv, not a real FIRMS pull
+    source: str  # file name the hotspots were read from, e.g. "demo_hotspots.csv"
 
 
 class ClassesResponse(BaseModel):
     classes: list[str]
-    colors: dict[str, str]
+    colors: dict[str, str]  # light-basemap steps
+    colors_dark: dict[str, str]  # same hues, dark-basemap steps
+
+
+class DetectionRecord(BaseModel):
+    """One labeled detection from the national parquets, for the map's click popup."""
+
+    id: int
+    latitude: float
+    longitude: float
+    acq_date: str
+    acq_time: str | None = None
+    satellite: str | None = None
+    bright_ti4: float | None = None
+    bright_ti5: float | None = None
+    frp: float | None = None
+    confidence: str | None = None
+    daynight: str | None = None
+    dist_to_industrial_m: float | None = None
+    osm_industrial_tag: str | None = None
+    dist_to_flare_capable_m: float | None = None
+    nearest_flare_facility_type: str | None = None
+    dist_to_heat_industry_m: float | None = None
+    nearest_heat_facility_type: str | None = None
+    dist_to_coal_mine_m: float | None = None
+    nearest_coal_source: str | None = None
+    dist_to_brick_kiln_m: float | None = None
+    landcover_class: int | None = None
+    recurrence_count: int | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+    is_anomalous: bool | None = None
+    label: str
+    label_source: str | None = None

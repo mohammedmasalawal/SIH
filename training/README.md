@@ -14,7 +14,7 @@ python -m training.evaluate --labeled-csv training/data/labeled_hotspots.csv
 2. **`train_model.py`** — excludes `label == "unknown"` rows, splits by whole
    ~375m grid cell (never by row — see `spatial_block_split`), and fits an
    XGBoost classifier on `backend/classification/features.py`'s feature vectors,
-   writing `training/artifacts/model.pkl`.
+   writing `training/artifacts/model_400k.pkl`.
 3. **`evaluate.py`** — reproduces the same spatial-block split against the same
    CSV + seed recorded in the model's own metadata and scores it, writing
    `training/artifacts/eval_summary.json`.
