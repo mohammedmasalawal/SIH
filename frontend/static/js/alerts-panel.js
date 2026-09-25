@@ -65,11 +65,18 @@
     const month = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" }); // "Sep", matching the slider
     return `${d.getUTCDate()} ${month} ${d.getUTCFullYear()}`;
   }
-  const fmtDate = (a) => (a.time ? `${fmtDay(a.date)} ${a.time.slice(0, 2)}:${a.time.slice(2)} UTC` : fmtDay(a.date));
-  const fmtIst = (a) => {
-    const m = (Number(a.time.slice(0, 2)) * 60 + Number(a.time.slice(2)) + 330) % 1440;
-    return `${pad(Math.floor(m / 60))}:${pad(m % 60)} IST`;
+  // FIRMS reports UTC; IST (UTC+5:30) can fall on the next calendar day, so shift the
+  // whole timestamp, not just the clock.
+  function istParts(isoDate, hhmm) {
+    const t = new Date(Date.parse(`${isoDate}T${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00Z`) + 330 * 60000);
+    return { day: fmtDay(t.toISOString().slice(0, 10)), time: `${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}` };
+  }
+  const fmtDate = (a) => {
+    if (!a.time) return fmtDay(a.date); // day-level alerts (events, first seen) keep the FIRMS date
+    const ist = istParts(a.date, a.time);
+    return `${ist.day} ${ist.time} IST`;
   };
+  const fmtUtc = (a) => `${fmtDay(a.date)} ${a.time.slice(0, 2)}:${a.time.slice(2)} UTC`;
   const fmtFrp = (v) => (v == null ? "n/a" : `${v.toFixed(v < 10 ? 2 : 1)} MW`);
   const fmtDistance = (m) => (m == null ? "n/a" : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`);
   const fmtSite = (a) => `${a.lat.toFixed(4)}°N, ${a.lng.toFixed(4)}°E`;
@@ -98,7 +105,7 @@
       rows: (a) => [
         ["Facility", `${esc(siteName(a))}<br>${esc(a.facility)}`],
         ["Why", "no other activity within ~1 km in the previous 90 days"],
-        ["Distance", esc(fmtDistance(a.facilityDistance))],
+        ["Distance", a.facilityDistance != null && a.facilityDistance < 1 ? "inside the facility's mapped outline" : esc(fmtDistance(a.facilityDistance))],
         ["FRP", esc(fmtFrp(a.frp))],
       ],
     },
@@ -130,7 +137,7 @@
 
   function popupHtml(a, color) {
     const satellite = `https://www.google.com/maps?q=${a.lat},${a.lng}&t=k`; // built here, not taken from the file
-    const when = a.time ? `${esc(fmtDate(a))} (${esc(fmtIst(a))})` : esc(fmtDate(a));
+    const when = a.time ? `${esc(fmtDate(a))} (${esc(fmtUtc(a))})` : `${esc(fmtDate(a))} (UTC date)`;
     const rows = [
       ["Type", esc(TYPES[a.type])],
       ["Date", when],

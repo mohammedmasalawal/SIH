@@ -30,20 +30,36 @@ python make_gold_sample.py --labeled training/data/labeled_hotspots.csv
 
 `recurrence_count`, `first_seen`, `last_seen`, and `is_anomalous` are all computed over the full input FIRMS CSV, including whatever date range you pass in. That's correct for labelling, but if that CSV spans your eval period, Teammate 2 must recompute all four from pre-split (training-only) data before using them as model inputs, or they will leak future detections into the label/flag for past rows.
 
-### National map
+### National dashboard (Vercel)
 
-`/` renders every national detection (1.89M) on the GPU (`frontend/index.html`); the original Leaflet page with the 21-row synthetic demo is at `/legacy` (`frontend/legacy/index.html`). After (re)building the labeled parquets, pack them and start the server:
+`/` is a static dashboard: every national detection (1.90M) on a GPU map, plus situation KPIs, a class-mix toggle, the top states, a daily timeline per class and the alerts panel. **Live: https://agninetra-one.vercel.app** (public). It needs no backend. `training/export_site.py` writes everything the browser reads into `dist/`, and any static host can serve that folder.
 
 ```powershell
-python -m training.pack_map_points   # -> data/map/national_points.bin (+ .gz, .json sidecar)
-python main.py                       # then open http://localhost:8000/
+python -m training.pack_map_points          # -> data/map/national_points.bin (+ .gz, .json sidecar)
+python -m training.export_site              # -> dist/ (about 50 s)
+python -m training.export_site --deploy     # ...and `vercel deploy --prod` it
+python main.py                              # local: http://localhost:8000/ serves frontend/ + dist/data
 ```
 
-- **Data path:** `training/pack_map_points.py` packs lon/lat (float32), row id (uint32), day index (uint16), class (uint8), and `is_anomalous` (uint8) — 16 bytes per detection, 30.2 MB raw / 15.5 MB gzipped (served pre-compressed from `/api/map/points.bin`). Points are stored in draw order (unknown → agricultural burning → wildfire → industrial → gas flare) so rare classes paint on top; the row id maps each point back to its parquet row. Repack whenever the parquets change — row ids are only valid against the files listed in the sidecar.
-- **Rendering:** MapLibre GL (CARTO dark-matter basemap) + deck.gl `ScatterplotLayer`; month range and class toggles filter on the GPU via `DataFilterExtension`, so filter changes never re-upload points. URL parameters `month=YYYY-MM`, `all=1`, `lat`, `lng`, `zoom` set the initial view.
-- **Click:** `/api/detection/{row_id}` reads that one row from the parquets with DuckDB (memory capped at `DUCKDB_MEMORY_LIMIT`); the server never loads the point set, so it stays ~300 MB with the model loaded.
-- **Alerts panel:** lists `alerts_history.csv` (see "Live ingestion") newest first — site, date, facility, FRP vs the site's normal; clicking one flies the map there, opens its popup, and switches the month so its detection is on screen. It is browser-only: it fetches `data/alerts_history.csv` relative to the page and builds the popup from the CSV row, with no API call. Locally the server serves that path straight from `training/data/live/alerts_history.csv`; on a static host, copy the file to `data/alerts_history.csv` next to `index.html`. (The detection points themselves still come from `/api/map/*`, so on a static host the panel works but the point layer doesn't.)
-- **Performance:** measured with all 1.89M points on screen, 1400×900: ~116 fps panning on an RTX 3050 laptop GPU, but ~19 fps on the same laptop's Intel UHD integrated GPU (one month: ~38 fps). Chrome on Windows laptops uses the integrated GPU by default — set Chrome to "High performance" under Windows Settings → System → Display → Graphics for smooth panning.
+`dist/data/` (about 57 MB, about 200 files):
+
+| File | Contents |
+|---|---|
+| `points.bin.gz` | the packed points (below), 15.5 MB |
+| `meta.json`, `classes.json` | pack layout, date range, export time; class names and colours |
+| `stats.json.gz` | detections (and anomalous) per day × class × state, for the KPIs, states and timeline |
+| `alerts_history.csv` | every live alert |
+| `details/NNNN.json.gz` + `index.json` | full records, 10,000 rows per shard, columnar (coordinates ×1e5, FRP ×100, repeated strings as dictionary codes). A click on a point loads shard `row_id // 10000`, one fetch of about 250 KB, cached after that |
+
+`.gz` files are served as plain `application/gzip`, and the browser decompresses them itself with `DecompressionStream`, so every host behaves the same. Gzip is written with a fixed timestamp, so unchanged shards produce identical bytes. Live data only changes the last shards and the stats, and a redeploy uploads only those. Vercel Hobby limits leave plenty of room: 100 MB per CLI upload, 15,000 files, 100 deploys/day. The project link lives in `dist/.vercel/` (gitignored with the rest of `dist/`), and the first `--deploy` needs `npm i -g vercel` and `vercel login`.
+
+**Auto-deploy:** after each scheduled ingest, `training/run_ingest.cmd` runs `python -m training.export_site --deploy --if-changed`. That step exports and deploys only when the map pack or `alerts_history.csv` is newer than `dist/data/meta.json`. Its output goes to `ingest.log`. A failed deploy never changes the task's result: the ingest exit code is returned. The local server's `/data` also comes from `dist/data`, so it refreshes on the same step.
+
+- **Points:** `training/pack_map_points.py` packs these fields, 16 bytes per detection: lon/lat (float32), row id (uint32), day index (uint16), class (uint8) and `is_anomalous` (uint8). Points are stored in draw order so rare classes paint on top: unknown → agricultural burning → wildfire → industrial → gas flare. The row id maps each point back to its parquet row. Repack whenever the parquets change, then re-export: row ids are only valid against the files listed in the sidecar.
+- **Rendering:** MapLibre GL (CARTO dark-matter basemap) with a deck.gl `ScatterplotLayer`. Month range and class toggles filter on the GPU via `DataFilterExtension`, so filter changes never re-upload points. URL parameters `month=YYYY-MM`, `all=1`, `lat`, `lng` and `zoom` set the initial view. Times are shown in IST, with UTC in the popup.
+- **Alerts panel:** lists `data/alerts_history.csv` newest first, with a type badge, a type filter, and the site, date, facility and metric for each alert. Clicking an alert flies the map there, opens its popup and switches the month.
+- **Performance:** measured with all 1.89M points on screen at 1400×900: about 116 fps panning on an RTX 3050 laptop GPU, but about 19 fps on the same laptop's Intel UHD integrated GPU (about 38 fps with one month shown). Chrome on Windows laptops uses the integrated GPU by default, so for smooth panning set Chrome to "High performance" under Windows Settings → System → Display → Graphics. The Vercel page loads in about 4 s.
+- **Local only:** the FastAPI server still serves `/api/map/*`, `/api/detection/{row_id}` (DuckDB row lookup), `/api/classify` and the old Leaflet demo page at `/legacy`. None of these exist on Vercel.
 
 ### Live ingestion
 
@@ -52,7 +68,7 @@ python main.py                       # then open http://localhost:8000/
 - computes the context columns with `build_labels.add_context_features` — the same cached OSM / GEM / coal-mine / WorldCover inputs as the historical build;
 - computes `recurrence_count` and `is_anomalous` against the historical + live store using **earlier detections only**. Recurrence counts a site's active days on or before the detection's date within `RECURRENCE_LOOKBACK_DAYS` (90) — the historical files counted within each 1-3-month period file, so an unbounded look-back would inflate recurrence relative to what the rules were checked against (`--lookback-days 0` = all history). `is_anomalous` uses the site's full prior history, as it always has;
 - applies the rules unchanged and appends to `training/data/live/labeled_hotspots_india_live_YYYY-MM.parquet` (one file per month; existing rows never move). The historical 12-month parquets are only read;
-- writes `training/data/live/alerts_latest.csv` — this run's `is_anomalous` detections labelled `industrial` or `gas flare`, with FRP vs the site's normal (median prior daily-max FRP) and the facility behind the label; it is empty when a run finds nothing new, so every alert is also appended to `alerts_history.csv` beside it — then repacks the map so `/` shows live data and click-through works on live points.
+- writes `training/data/live/alerts_latest.csv` — this run's `is_anomalous` detections labelled `industrial` or `gas flare`, with FRP vs the site's normal (median prior daily-max FRP) and the facility behind the label; it is empty when a run finds nothing new, so every alert is also appended to `alerts_history.csv` beside it — then repacks the map; `run_ingest.cmd` then re-exports and redeploys the dashboard (see "National dashboard").
 
 ```powershell
 python -m training.ingest_latest                                   # last 2 days
@@ -61,15 +77,21 @@ python -m training.ingest_latest --start 2026-09-01 --end 2026-09-23   # backfil
 
 A lock file (`training/data/live/ingest.lock`) stops overlapping runs.
 
-**Run it every 6 hours (Windows Task Scheduler)** — `training/run_ingest.cmd` sets the working directory and appends output to `training/data/live/logs/ingest.log`. From a Command Prompt:
+**Run it every 6 hours (Windows Task Scheduler)** — `training/run_ingest.cmd` sets the working directory, pulls the **last 3 days** on every run (overlapping windows cost nothing — stored detections are skipped — and a missed run or a day with the machine off leaves no gap, as long as it's back within ~3 days), and appends output to `training/data/live/logs/ingest.log`. Register it from PowerShell:
 
-```bat
-schtasks /Create /TN "Agninetra live ingest" /SC HOURLY /MO 6 /ST 00:15 /TR "\"C:\Users\Admin\Documents\Agninetra\training\run_ingest.cmd\"" /F
-schtasks /Run /TN "Agninetra live ingest"          &:: run once now to check
-schtasks /Query /TN "Agninetra live ingest" /V /FO LIST
+```powershell
+$action    = New-ScheduledTaskAction -Execute "C:\Windows\System32\conhost.exe" `
+               -Argument '--headless cmd.exe /c "C:\Users\Admin\Documents\Agninetra\training\run_ingest.cmd"' `
+               -WorkingDirectory "C:\Users\Admin\Documents\Agninetra"
+$trigger   = New-ScheduledTaskTrigger -Once -At "00:15" -RepetitionInterval (New-TimeSpan -Hours 6)
+$settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+               -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+Register-ScheduledTask -TaskName "Agninetra live ingest" -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+Get-ScheduledTaskInfo -TaskName "Agninetra live ingest"   # last/next run and result
 ```
 
-Or in the Task Scheduler GUI: *Create Task* → General: name "Agninetra live ingest", "Run whether user is logged on or not" → Triggers: *New*, Daily, start 00:15, "Repeat task every 6 hours" for "Indefinitely" → Actions: *Start a program*, `C:\Users\Admin\Documents\Agninetra\training\run_ingest.cmd` → Settings: "Do not start a new instance" if already running. The FIRMS key is read from `.env`, so the task needs no extra environment. A running API server picks up each repack on the next request (the sidecar's modification time is checked).
+Why these settings: `-AllowStartIfOnBatteries`/`-DontStopIfGoingOnBatteries` (Task Scheduler's defaults skip or kill runs on a laptop unplugged), `-StartWhenAvailable` (a run missed while the machine was asleep or off starts as soon as it's back), `-MultipleInstances IgnoreNew` (never two runs at once; the ingest lock file is the second guard), and `conhost.exe --headless` so no console window opens during a run. `Interactive` means it runs only while you're logged in; running logged-out (`-LogonType S4U`) needs an administrator PowerShell. The FIRMS key is read from `.env`, so the task needs no extra environment. A running API server picks up each repack on the next request (the sidecar's modification time is checked).
 
 ### Live alerts
 

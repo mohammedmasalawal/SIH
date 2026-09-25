@@ -133,6 +133,9 @@ CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]  # placeholder
 # --- frontend/ (served by main.py as static files -- same-origin, no CORS needed) ---
 FRONTEND_DIR = ROOT_DIR / "frontend"
 DEMO_HOTSPOTS_PATH = ROOT_DIR / "data" / "sample" / "demo_hotspots.csv"
+# Static dashboard build (training/export_site.py): the frontend plus every data file it
+# reads, deployable as-is to a static host; the local server serves its data/ at /data.
+SITE_DIST_DIR = ROOT_DIR / "dist"
 # Class colours, one hue per class in both modes: light steps for the Leaflet page's
 # light OSM tiles, dark steps for the national map's dark basemap. Four hues are
 # on screen together in a scatter, so every pair must separate: blue/magenta/

@@ -3,40 +3,74 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agninetra National Map</title>
+  <title>Agninetra Thermal Watch</title>
+  <meta name="description" content="VIIRS thermal detections across India, classified and monitored for alerts." />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="/static/css/national-map.css" />
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27none%27 stroke=%27%2345c1d6%27 stroke-width=%273%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%275%27 fill=%27%2345c1d6%27/%3E%3C/svg%3E" />
 </head>
 <body>
-  <div id="map"></div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <div class="brand-name">AGNINETRA</div>
+        <div class="brand-sub">Thermal watch · India · VIIRS 375 m</div>
+      </div>
+    </div>
+    <div id="period-chip" class="period-chip" aria-live="polite">—</div>
+    <div class="status">
+      <span id="live-dot" class="live-dot" aria-hidden="true"></span>
+      <span id="status">Loading detections…</span>
+    </div>
+  </header>
 
-  <section id="classes-panel" class="panel" aria-label="Classes">
-    <h1>Thermal detections, India</h1>
-    <div id="class-toggles"></div>
-    <p id="status" role="status">Loading detections...</p>
-    <a class="subtle-link" href="/legacy/">Classic demo view</a>
+  <aside class="side side-left" aria-label="Situation">
+    <section class="panel">
+      <h2 class="panel-title">Situation <span id="kpi-period" class="panel-sub"></span></h2>
+      <div id="kpis" class="kpis"></div>
+    </section>
+    <section class="panel">
+      <h2 class="panel-title">Class mix <span class="panel-sub">click to show / hide</span></h2>
+      <div id="class-mix" class="class-mix" role="group" aria-label="Detection classes"></div>
+    </section>
+    <section class="panel panel-grow">
+      <h2 class="panel-title">Top states</h2>
+      <div id="states" class="states"></div>
+    </section>
+  </aside>
+
+  <main class="map-wrap" aria-label="Map">
+    <div id="map"></div>
+  </main>
+
+  <section class="timeline panel" aria-label="Timeline">
+    <div class="timeline-head">
+      <h2 class="panel-title">Timeline <span class="panel-sub">detections per day · click a month</span></h2>
+      <div class="timeline-controls">
+        <button id="play" type="button" class="icon-btn" aria-label="Play months">&#9654;</button>
+        <label class="all-year"><input id="all-year" type="checkbox" /> All year</label>
+      </div>
+    </div>
+    <div id="timeline-chart" class="timeline-chart"></div>
+    <div id="timeline-tip" class="chart-tip" role="tooltip" hidden></div>
   </section>
 
-  <section id="alerts-panel" class="panel" aria-labelledby="alerts-title">
+  <aside id="alerts-panel" class="side side-right panel" aria-labelledby="alerts-title">
     <header class="alerts-header">
-      <h2 id="alerts-title">Alerts <span id="alerts-count" class="alerts-count">…</span></h2>
+      <h2 id="alerts-title" class="panel-title">Alerts <span id="alerts-count" class="alerts-count">…</span></h2>
       <button id="alerts-toggle" type="button" aria-controls="alerts-list" aria-expanded="true">Hide</button>
     </header>
     <p class="alerts-note">Newest first. Starting thresholds, not yet validated.</p>
     <div id="alerts-filters" class="alerts-filters" role="group" aria-label="Filter alerts by type"></div>
     <div id="alerts-list" class="alerts-list"><p class="alerts-empty">Loading alerts…</p></div>
-  </section>
+  </aside>
 
-  <section id="time-panel" class="panel" aria-label="Time">
-    <button id="play" type="button" aria-label="Play months">&#9654;</button>
-    <input id="month-slider" type="range" min="0" max="0" step="1" value="0" aria-label="Month" />
-    <output id="month-label" for="month-slider"></output>
-    <label class="all-year"><input id="all-year" type="checkbox" /> All year</label>
-  </section>
+  <div id="states-tip" class="chart-tip" role="tooltip" hidden></div>
 
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/deck.gl@9.1.14/dist.min.js"></script>
   <script src="/static/js/alerts-panel.js"></script>
-  <script src="/static/js/national-map.js"></script>
+  <script src="/static/js/dashboard.js"></script>
 </body>
 </html>

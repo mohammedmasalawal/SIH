@@ -135,16 +135,48 @@ def test_module_level_store_points_at_config_paths():
     assert map_store_module.map_store.points_path.name == "national_points.bin"
 
 
-def test_alerts_history_served_as_static_csv(monkeypatch, tmp_path):
-    import main
+def test_export_site_round_trips_details_and_stats(packed, tmp_path):
+    from training.export_site import export
 
-    path = tmp_path / "alerts_history.csv"
-    path.write_text("latitude,longitude,acq_date\n22.1,69.1,2026-09-01\n")
-    monkeypatch.setattr(main, "ALERTS_HISTORY_PATH", path)
-    response = TestClient(app).get("/data/alerts_history.csv")
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/csv")
-    assert response.text.startswith("latitude,longitude")
+    meta, out_bin, out_meta = packed
+    alerts = tmp_path / "alerts_history.csv"
+    alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,industrial_anomaly,22.1,69.1,2026-01-01\n")
+    dist = tmp_path / "dist"
+    summary = export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts)
+    data = dist / "data"
+    assert summary["rows"] == 3 and summary["shards"] == 1
+    for name in ("index.html", "static/js/dashboard.js", "vercel.json", "data/meta.json", "data/classes.json",
+                 "data/points.bin.gz", "data/stats.json.gz", "data/alerts_history.csv", "data/details/index.json"):
+        assert (dist / name).exists(), name
+    assert gzip.decompress((data / "points.bin.gz").read_bytes()) == out_bin.read_bytes()
 
-    monkeypatch.setattr(main, "ALERTS_HISTORY_PATH", tmp_path / "missing.csv")
-    assert TestClient(app).get("/data/alerts_history.csv").status_code == 404
+    index = json.loads((data / "details" / "index.json").read_text())
+    shard = json.loads(gzip.decompress((data / "details" / "0000.json.gz").read_bytes()))
+    row = 2  # third source row: the int-acq_time agricultural-burning detection
+    assert shard["lat"][row] / 1e5 == pytest.approx(30.5) and shard["acq_time"][row] == 626
+    assert index["dicts"]["label"][shard["label"][row]] == "agricultural burning"
+    assert shard["day"][row] == 40 and shard["anom"][0] == 1
+
+    stats = json.loads(gzip.decompress((data / "stats.json.gz").read_bytes()))
+    assert sum(stats["n"]) == 3 and sum(stats["anom"]) == 1
+    assert json.loads((data / "meta.json").read_text())["detail_shard_rows"] == index["shard_rows"]
+
+
+def test_export_site_is_stale_tracks_pack_and_alerts(tmp_path):
+    import os
+
+    from training.export_site import is_stale
+
+    meta, alerts, dist = tmp_path / "points.json", tmp_path / "alerts.csv", tmp_path / "dist"
+    meta.write_text("{}")
+    alerts.write_text("alert_id\n")
+    assert is_stale(dist, meta, alerts)  # never exported
+    exported = dist / "data" / "meta.json"
+    exported.parent.mkdir(parents=True)
+    exported.write_text("{}")
+    os.utime(meta, (1_000, 1_000))
+    os.utime(alerts, (1_000, 1_000))
+    assert not is_stale(dist, meta, alerts)
+    os.utime(alerts, None)  # a new alert after the export
+    os.utime(exported, (2_000, 2_000))
+    assert is_stale(dist, meta, alerts)

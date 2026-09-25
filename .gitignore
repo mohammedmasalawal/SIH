@@ -11,3 +11,6 @@ data/external/gem_facilities_india.geojson
 training/data/
 training/artifacts/
 data/map/
+
+# static dashboard build (python -m training.export_site); includes the Vercel project link
+dist/
