@@ -135,13 +135,15 @@
     },
   };
 
+  let nameFor = (label) => label; // display name for a class; set by init()
+
   function popupHtml(a, color) {
     const satellite = `https://www.google.com/maps?q=${a.lat},${a.lng}&t=k`; // built here, not taken from the file
     const when = a.time ? `${esc(fmtDate(a))} (${esc(fmtUtc(a))})` : `${esc(fmtDate(a))} (UTC date)`;
     const rows = [
       ["Type", esc(TYPES[a.type])],
       ["Date", when],
-      ...(a.type === "large_fire_event" ? [] : [["Class", esc(a.label)]]),
+      ...(a.type === "large_fire_event" ? [] : [["Class", esc(nameFor(a.label))]]),
       ...VIEW[a.type].rows(a),
       ["Location", `${esc(fmtSite(a))} · <a href="${esc(satellite)}" target="_blank" rel="noopener">satellite view</a>`],
     ];
@@ -157,9 +159,11 @@
    * @param {maplibregl.Map} opts.map
    * @param {(lngLat: [number, number], html: string) => void} opts.openPopup
    * @param {(label: string) => string} opts.colorFor  class colour (neutral until known)
+   * @param {(label: string) => string} [opts.nameFor]  class display name (e.g. "unknown" -> "Unclassified — needs review")
    * @param {(alert: object) => void} [opts.onSelect]  e.g. switch the month filter
    */
-  async function init({ map, openPopup, colorFor, onSelect }) {
+  async function init({ map, openPopup, colorFor, nameFor: displayName, onSelect }) {
+    if (displayName) nameFor = displayName;
     const panel = document.getElementById("alerts-panel");
     const list = document.getElementById("alerts-list");
     const countEl = document.getElementById("alerts-count");
@@ -210,7 +214,7 @@
         `<span class="alert-top"><span class="swatch" data-label="${esc(swatchLabel(a))}" style="background:${esc(colorFor(swatchLabel(a)))}"></span>` +
         `<span class="alert-facility">${esc(view.title(a))}</span>` +
         `<span class="alert-ratio" title="${esc(view.metricHint)}">${esc(view.metric(a))}</span></span>` +
-        `<span class="alert-meta"><span class="alert-badge">${esc(TYPES[a.type])}</span>${esc(a.type === "large_fire_event" ? "" : a.label + " · ")}${esc(fmtDate(a))}</span>` +
+        `<span class="alert-meta"><span class="alert-badge">${esc(TYPES[a.type])}</span>${a.type === "large_fire_event" ? "" : `<span data-class-label="${esc(a.label)}">${esc(nameFor(a.label))}</span> · `}${esc(fmtDate(a))}</span>` +
         `<span class="alert-meta">${esc(view.detail(a))}</span>`;
       fragment.appendChild(item);
     });
@@ -256,8 +260,11 @@
       openPopup([alert.lng, alert.lat], popupHtml(alert, colorFor(swatchLabel(alert))));
     });
 
-    // class colours may arrive after the list is built (they come with the point data)
-    const recolor = () => list.querySelectorAll(".swatch[data-label]").forEach((s) => { s.style.background = colorFor(s.dataset.label); });
+    // class colours and names may arrive after the list is built (they come with the point data)
+    const recolor = () => {
+      list.querySelectorAll(".swatch[data-label]").forEach((s) => { s.style.background = colorFor(s.dataset.label); });
+      list.querySelectorAll("[data-class-label]").forEach((s) => { s.textContent = nameFor(s.dataset.classLabel); });
+    };
     return { alerts, recolor };
   }
 

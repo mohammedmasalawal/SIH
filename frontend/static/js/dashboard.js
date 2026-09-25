@@ -15,6 +15,22 @@
   const TOP_STATES = 7;
   // Stack order in charts: bulk classes first, rare ones on top where they stay visible.
   const STACK_ORDER = ["agricultural burning", "wildfire", "unknown", "industrial", "gas flare"];
+  const VERIFIED_STATES = new Set(["Gujarat"]); // where gold-set review has checked the labels
+  const ALL_STATES = [0, 255]; // state filter range meaning "no state filter"
+  // Hollow rings, kept clear of the class colours: GEM, OSM critical, other OSM industrial.
+  const FACILITY_COLORS = ["#ffffff", "#45c1d6", "#8a97a4"];
+  // Why a detection has its label (label_source), in words.
+  const LABEL_REASONS = {
+    rule: {
+      "gas flare": "Rule match: within 1 km of a flare-capable GEM facility, active on 5+ days",
+      industrial: "Rule match: at or near mapped heavy industry, an OSM industrial site, or a coal mine",
+      "agricultural burning": "Rule match: WorldCover cropland, more than 2 km from mapped industry",
+      wildfire: "Rule match: WorldCover tree cover / shrubland / grassland, more than 2 km from mapped industry",
+    },
+    unknown: "Needs review: no labelling rule matched",
+    conflict: "Needs review: more than one labelling rule matched",
+    model: "Model prediction",
+  };
 
   const params = new URLSearchParams(location.search);
   const $ = (id) => document.getElementById(id);
@@ -62,18 +78,24 @@
 
   // Alerts panel reads its own static CSV; start it now so it works even if the rest fails.
   let classColors = null;
+  let displayNames = { unknown: "Unclassified — needs review" }; // replaced by classes.json
   const colorFor = (label) => classColors?.[label] ?? "#6b6a65";
+  const nameFor = (label) => displayNames[label] ?? label;
   let onAlertSelect = null;
-  const alertsReady = AlertsPanel.init({ map, openPopup, colorFor, onSelect: (alert) => onAlertSelect?.(alert) });
+  const alertsReady = AlertsPanel.init({ map, openPopup, colorFor, nameFor, onSelect: (alert) => onAlertSelect?.(alert) });
 
-  let meta, classesInfo, stats, buffer, detailIndex;
+  setupMethodDrawer();
+
+  let meta, classesInfo, stats, buffer, detailIndex, rowStates, statesInfo;
   try {
-    [meta, classesInfo, stats, buffer, detailIndex] = await Promise.all([
+    [meta, classesInfo, stats, buffer, detailIndex, rowStates, statesInfo] = await Promise.all([
       fetchJson(DATA + "meta.json"),
       fetchJson(DATA + "classes.json"),
       fetchJson(DATA + "stats.json.gz"),
       fetchBytes(DATA + "points.bin.gz"),
       fetchJson(DATA + "details/index.json"),
+      fetchBytes(DATA + "point_state.bin.gz"),
+      fetchJson(DATA + "states.json.gz"),
       mapLoaded,
     ]);
   } catch (error) {
@@ -84,7 +106,11 @@
   }
   timings.fetched = performance.now();
   classColors = classesInfo.colors_dark;
+  displayNames = { ...displayNames, ...(classesInfo.display ?? {}) };
   alertsReady.then(({ recolor }) => recolor());
+  document.querySelectorAll("[data-swatch]").forEach((dt) =>
+    dt.insertAdjacentHTML("afterbegin", `<span class="swatch" style="background:${colorFor(dt.dataset.swatch)}"></span>`));
+  $("method-range").textContent = `${meta.base_date} to ${meta.max_date} (UTC dates)`;
 
   const CLASSES = meta.classes;
   const stackOrder = STACK_ORDER.filter((c) => CLASSES.includes(c)).map((c) => CLASSES.indexOf(c));
@@ -99,17 +125,22 @@
   const classIds = new Uint8Array(bin, buffer.byteOffset + L.class_id.offset, N);
   const palette = CLASSES.map((label) => hexToRgba(colorFor(label)));
   const colors = new Uint8Array(N * 4);
-  for (let i = 0; i < N; i++) colors.set(palette[classIds[i]], i * 4);
+  const filterValues = new Float32Array(N * 2); // [day, state index] per point
+  for (let i = 0; i < N; i++) {
+    colors.set(palette[classIds[i]], i * 4);
+    filterValues[i * 2] = days[i];
+    filterValues[i * 2 + 1] = rowStates[rowIds[i]]; // point_state.bin is indexed by row id
+  }
   const pointData = {
     length: N,
     attributes: {
       getPosition: { value: positions, size: 2 },
       getFillColor: { value: colors, size: 4 },
-      getFilterValue: { value: Float32Array.from(days), size: 1 },
+      getFilterValue: { value: filterValues, size: 2 },
     },
   };
   const getFilterCategory = (_, { index }) => classIds[index];
-  const filterExtension = new deck.DataFilterExtension({ filterSize: 1, categorySize: 1, countItems: true });
+  const filterExtension = new deck.DataFilterExtension({ filterSize: 2, categorySize: 1, countItems: true });
 
   // --- dates and months ---------------------------------------------------------------------
   const base = Date.parse(meta.base_date + "T00:00:00Z");
@@ -134,10 +165,12 @@
   }
 
   const requestedMonth = months.findIndex((m) => m.key === params.get("month"));
+  const requestedState = stats.states.indexOf(params.get("state"));
   const state = {
     monthIndex: requestedMonth >= 0 ? requestedMonth : months.length - 1,
     allYear: params.get("all") === "1",
     active: new Set(CLASSES.map((_, i) => i)),
+    region: requestedState >= 0 ? requestedState : null, // index into stats.states, null = all India
     visible: null,
   };
   const range = () => (state.allYear ? [0, meta.max_day] : [months[state.monthIndex].start, months[state.monthIndex].end]);
@@ -148,12 +181,18 @@
   const nDays = meta.max_day + 1;
   const dayClass = Array.from({ length: nDays }, () => new Float64Array(CLASSES.length));
   const dayAnom = Array.from({ length: nDays }, () => new Float64Array(CLASSES.length));
-  for (let i = 0; i < stats.n.length; i++) {
-    dayClass[stats.day[i]][stats.cls[i]] += stats.n[i];
-    dayAnom[stats.day[i]][stats.cls[i]] += stats.anom[i];
+  function buildDaily() { // per-day totals for the selected region
+    dayClass.forEach((row) => row.fill(0));
+    dayAnom.forEach((row) => row.fill(0));
+    for (let i = 0; i < stats.n.length; i++) {
+      if (state.region != null && stats.state[i] !== state.region) continue;
+      dayClass[stats.day[i]][stats.cls[i]] += stats.n[i];
+      dayAnom[stats.day[i]][stats.cls[i]] += stats.anom[i];
+    }
   }
+  buildDaily();
 
-  function aggregate([from, to]) {
+  function aggregate([from, to]) { // byClass / anom: selected region; byState: all states
     const byClass = new Float64Array(CLASSES.length);
     let anom = 0;
     for (let d = from; d <= to; d++) {
@@ -190,7 +229,7 @@
       pickable: true,
       extensions: [filterExtension],
       getFilterCategory,
-      filterRange: range(),
+      filterRange: [range(), state.region == null ? ALL_STATES : [state.region, state.region]],
       filterCategories: [...state.active],
       onFilteredItemsChange: ({ count }) => { state.visible = count; updateStatus(); },
     });
@@ -204,12 +243,70 @@
       if (!timings.firstRender) { timings.firstRender = performance.now(); updateStatus(); }
     },
     onClick: (info) => {
-      if (info.layer && info.index >= 0) showDetection(rowIds[info.index], info.coordinate);
+      if (info.layer?.id === "facilities" && info.index >= 0) showFacility(info.index);
+      else if (info.layer && info.index >= 0) showDetection(rowIds[info.index], info.coordinate);
       else if (popup) popup.remove();
     },
   });
   map.addControl(overlay);
-  const renderMap = () => overlay.setProps({ layers: [buildLayer()] });
+
+  // --- known facilities (loaded on first use) -------------------------------------------------
+  let facilities = null, facilityLayer = null;
+  function buildFacilityLayer() {
+    const f = facilities;
+    const count = f.lat.length;
+    const pos = new Float32Array(count * 2), lineColors = new Uint8Array(count * 4);
+    const rgba = FACILITY_COLORS.map(hexToRgba);
+    for (let i = 0; i < count; i++) {
+      pos[i * 2] = f.lon[i] / 1e5; pos[i * 2 + 1] = f.lat[i] / 1e5;
+      lineColors.set(rgba[f.group[i]], i * 4);
+    }
+    return new deck.ScatterplotLayer({
+      id: "facilities",
+      data: { length: count, attributes: { getPosition: { value: pos, size: 2 }, getLineColor: { value: lineColors, size: 4 } } },
+      radiusUnits: "pixels", getRadius: 4, radiusMinPixels: 3,
+      filled: true, getFillColor: [8, 12, 17, 90], stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
+      pickable: true,
+    });
+  }
+  const facilitiesToggle = $("facilities-toggle");
+  facilitiesToggle.addEventListener("change", async () => {
+    if (facilitiesToggle.checked && !facilities) {
+      facilitiesToggle.disabled = true;
+      try {
+        facilities = await fetchJson(DATA + "facilities.json.gz");
+        facilityLayer = buildFacilityLayer();
+        const counts = facilities.groups.map((_, g) => facilities.group.filter((x) => x === g).length);
+        $("facilities-legend").innerHTML = facilities.groups.map((name, g) =>
+          `<div style="color:${FACILITY_COLORS[g]}"><span class="ring"></span><span style="color:var(--text-secondary)">${esc(name)} · ${fmtCount(counts[g])}</span></div>`).join("");
+      } catch (error) {
+        facilitiesToggle.checked = false;
+        $("facilities-legend").textContent = `Facilities unavailable: ${error.message}`;
+        $("facilities-legend").hidden = false;
+        console.warn(error);
+      } finally {
+        facilitiesToggle.disabled = false;
+      }
+    }
+    $("facilities-legend").hidden = !facilitiesToggle.checked && !!facilities;
+    renderMap();
+  });
+  function showFacility(i) {
+    const f = facilities;
+    const lngLat = [f.lon[i] / 1e5, f.lat[i] / 1e5];
+    const rows = [
+      ["Type", esc(f.kinds[f.kind[i]])],
+      ["Group", esc(f.groups[f.group[i]])],
+      ["Source", f.sources[f.source[i]] === "OSM" ? "OpenStreetMap (a point inside the mapped outline)" : "Global Energy Monitor"],
+      ["Location", `${lngLat[1].toFixed(5)}, ${lngLat[0].toFixed(5)}`],
+    ];
+    openPopup(lngLat, `<div class="detection"><h2><span class="swatch" style="background:transparent;border:2px solid ${FACILITY_COLORS[f.group[i]]}"></span>${esc(f.name[i] ?? "Unnamed facility")}</h2><dl>` +
+      rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") + "</dl></div>");
+  }
+
+  const renderMap = () => overlay.setProps({
+    layers: [buildLayer(), ...(facilitiesToggle.checked && facilityLayer ? [facilityLayer] : [])],
+  });
   map.on("zoom", () => {
     const next = radiusForZoom(map.getZoom());
     if (next !== radiusScale) { radiusScale = next; renderMap(); }
@@ -248,7 +345,7 @@
     const fromIso = dayIso(from), toIso = dayIso(to);
     const alertsIn = alertList.filter((a) => a.date >= fromIso && a.date <= toIso).length;
     const partial = !state.allYear && months[state.monthIndex].end - months[state.monthIndex].start + 1 < months[state.monthIndex].fullDays;
-    $("kpi-period").textContent = periodLabel() + (partial ? " · to date" : "");
+    $("kpi-period").textContent = (state.region != null ? `${stats.states[state.region]} · ` : "") + periodLabel() + (partial ? " · to date" : "");
     $("kpis").innerHTML = [
       ["Detections", fmtCount(agg.total), `${agg.days} day${agg.days === 1 ? "" : "s"}`],
       ["Per day", fmtCount(perDay), compare || "average"],
@@ -269,14 +366,14 @@
     $("class-mix").innerHTML = stackOrder.map((c) => {
       const share = totals[c] / all;
       const on = state.active.has(c);
-      return `<button type="button" class="ring-btn" data-cls="${c}" aria-pressed="${on}" title="${esc(CLASSES[c])}: ${fmtCount(totals[c])} (${(share * 100).toFixed(1)}%)">
+      return `<button type="button" class="ring-btn" data-cls="${c}" aria-pressed="${on}" title="${esc(nameFor(CLASSES[c]))}: ${fmtCount(totals[c])} (${(share * 100).toFixed(1)}%)">
         <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
           <circle cx="26" cy="26" r="${R}" fill="none" stroke="#1e2a36" stroke-width="5"/>
           <circle cx="26" cy="26" r="${R}" fill="none" stroke="${colorFor(CLASSES[c])}" stroke-width="5" stroke-linecap="round"
             stroke-dasharray="${Math.max(0.001, share * C)} ${C}" transform="rotate(-90 26 26)"/>
           <text x="26" y="30" text-anchor="middle" class="ring-pct">${share >= 0.1 ? Math.round(share * 100) : (share * 100).toFixed(1)}%</text>
         </svg>
-        <span class="ring-name">${esc(CLASSES[c])}</span>
+        <span class="ring-name">${esc(nameFor(CLASSES[c]))}</span>
         <span class="ring-count">${fmtCount(totals[c])}</span>
       </button>`;
     }).join("");
@@ -294,7 +391,7 @@
   const statesTip = $("states-tip");
   function renderStates(agg) {
     const rows = [...agg.byState.entries()]
-      .map(([s, byClass]) => ({ name: stats.states[s], byClass, total: byClass.reduce((a, b) => a + b, 0) }))
+      .map(([s, byClass]) => ({ index: s, name: stats.states[s], byClass, total: byClass.reduce((a, b) => a + b, 0) }))
       .filter((r) => r.total > 0)
       .sort((a, b) => b.total - a.total)
       .slice(0, TOP_STATES);
@@ -304,7 +401,7 @@
     }
     const max = rows[0].total;
     $("states").innerHTML = rows.map((r, i) =>
-      `<div class="state-row" data-i="${i}">
+      `<div class="state-row${r.index === state.region ? " selected" : ""}" data-i="${i}" title="Show ${esc(r.name)}">
         <div class="state-line"><span class="state-name">${esc(r.name)}</span><span class="state-count">${fmtCount(r.total)}</span></div>
         <div class="state-bar" style="width:${Math.max(4, (r.total / max) * 100)}%">${
           stackOrder.filter((c) => r.byClass[c] > 0).map((c) =>
@@ -317,10 +414,14 @@
       if (!row) { statesTip.hidden = true; return; }
       const r = rows[Number(row.dataset.i)];
       statesTip.innerHTML = `<div class="tip-title">${esc(r.name)}</div>` + stackOrder.filter((c) => r.byClass[c] > 0).map((c) =>
-        `<div class="tip-row"><span class="swatch" style="background:${colorFor(CLASSES[c])}"></span>${esc(CLASSES[c])}<b>${fmtCount(r.byClass[c])}</b></div>`).join("");
+        `<div class="tip-row"><span class="swatch" style="background:${colorFor(CLASSES[c])}"></span>${esc(nameFor(CLASSES[c]))}<b>${fmtCount(r.byClass[c])}</b></div>`).join("");
       placeTip(statesTip, event);
     };
     $("states").onmouseleave = () => { statesTip.hidden = true; };
+    $("states").onclick = (event) => {
+      const row = event.target.closest(".state-row");
+      if (row) selectRegion(rows[Number(row.dataset.i)].index, { fly: true });
+    };
   }
 
   function placeTip(tip, event) {
@@ -387,7 +488,7 @@
     cursor?.setAttribute("x1", x); cursor?.setAttribute("x2", x); cursor?.setAttribute("visibility", "visible");
     tlTip.innerHTML = `<div class="tip-title">${esc(fmtDay(day))} · ${fmtCount(timelineGeom.totals[day])}</div>` +
       stackOrder.filter((c) => state.active.has(c) && dayClass[day][c] > 0).slice().reverse().map((c) =>
-        `<div class="tip-row"><span class="swatch" style="background:${colorFor(CLASSES[c])}"></span>${esc(CLASSES[c])}<b>${fmtCount(dayClass[day][c])}</b></div>`).join("");
+        `<div class="tip-row"><span class="swatch" style="background:${colorFor(CLASSES[c])}"></span>${esc(nameFor(CLASSES[c]))}<b>${fmtCount(dayClass[day][c])}</b></div>`).join("");
     placeTip(tlTip, event);
   });
   chartEl.addEventListener("mouseleave", () => {
@@ -403,6 +504,35 @@
     update();
   });
   new ResizeObserver(() => renderTimeline()).observe(chartEl);
+
+  // --- region selector -----------------------------------------------------------------------
+  const stateSelect = $("state-select");
+  const regionNames = stats.states.map((name, i) => ({ name, i })).sort((a, b) =>
+    (a.name.startsWith("(") - b.name.startsWith("(")) || a.name.localeCompare(b.name));
+  stateSelect.insertAdjacentHTML("beforeend", regionNames.map(({ name, i }) =>
+    `<option value="${i}">${esc(name)}${VERIFIED_STATES.has(name) ? " ✓ verified" : ""}</option>`).join(""));
+  map.addSource("region-outline", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({ id: "region-outline", type: "line", source: "region-outline",
+                 paint: { "line-color": "#45c1d6", "line-width": 1.6, "line-opacity": 0.9 } }, firstSymbolId);
+  function selectRegion(index, { fly = false } = {}) {
+    state.region = index;
+    stateSelect.value = index == null ? "" : String(index);
+    const name = index == null ? null : stats.states[index];
+    const note = $("state-validation");
+    if (name == null) note.textContent = "Accuracy verified in Gujarat; other states not yet validated.";
+    else if (VERIFIED_STATES.has(name)) note.innerHTML = '<span class="badge verified">verified</span>Accuracy verified in Gujarat (Jamnagar gold sets); other states not yet validated.';
+    else note.innerHTML = `<span class="badge unvalidated">not validated</span>Accuracy verified in Gujarat; ${esc(name)} not yet validated.`;
+    const outline = statesInfo.outlines.features.filter((f) => f.properties.name === name);
+    map.getSource("region-outline").setData({ type: "FeatureCollection", features: outline });
+    if (fly) {
+      const box = name != null && statesInfo.bbox[name];
+      if (box) map.fitBounds([[box[0], box[1]], [box[2], box[3]]], { padding: 40, duration: 900 });
+      else if (index == null) map.flyTo({ center: [INDIA.lng, INDIA.lat], zoom: INDIA.zoom, duration: 900 });
+    }
+    buildDaily();
+    update({ classesChanged: true });
+  }
+  stateSelect.addEventListener("change", () => selectRegion(stateSelect.value === "" ? null : Number(stateSelect.value), { fly: true }));
 
   // --- time controls ---------------------------------------------------------------------------
   const playButton = $("play"), allYearBox = $("all-year");
@@ -426,6 +556,7 @@
     const url = new URL(location.href);
     url.searchParams.set("month", months[state.monthIndex].key);
     if (state.allYear) url.searchParams.set("all", "1"); else url.searchParams.delete("all");
+    if (state.region != null) url.searchParams.set("state", stats.states[state.region]); else url.searchParams.delete("state");
     history.replaceState(null, "", url);
   }
 
@@ -485,7 +616,9 @@
       ["Label source", esc(d.label_source)],
       ["Location", `${d.latitude.toFixed(5)}, ${d.longitude.toFixed(5)}`],
     ];
-    return `<div class="detection"><h2><span class="swatch" style="background:${colorFor(d.label)}"></span>${esc(d.label)}</h2><dl>` +
+    const reason = d.label_source === "rule" ? LABEL_REASONS.rule[d.label] : LABEL_REASONS[d.label_source];
+    rows.unshift(["Why", `<span class="reason">${esc(reason ?? `label source: ${d.label_source ?? "n/a"}`)}</span>`]);
+    return `<div class="detection"><h2><span class="swatch" style="background:${colorFor(d.label)}"></span>${esc(nameFor(d.label))}</h2><dl>` +
       rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") + "</dl></div>";
   }
 
@@ -499,6 +632,21 @@
     }
   }
 
+  // --- Validation & Method drawer ---------------------------------------------------------------
+  function setupMethodDrawer() {
+    const drawer = $("method-drawer"), backdrop = $("method-backdrop"), opener = $("method-open");
+    const setOpen = (open) => {
+      drawer.hidden = backdrop.hidden = !open;
+      opener.setAttribute("aria-expanded", String(open));
+      if (open) $("method-close").focus(); else opener.focus();
+    };
+    opener.addEventListener("click", () => setOpen(true));
+    $("method-close").addEventListener("click", () => setOpen(false));
+    backdrop.addEventListener("click", () => setOpen(false));
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !drawer.hidden) setOpen(false); });
+    if (params.get("method") === "1") setOpen(true);
+  }
+
   // --- alerts: count them per period; an alert click shows its month ---------------------------
   alertsReady.then(({ alerts }) => { alertList = alerts; update(); });
   onAlertSelect = (alert) => {
@@ -509,6 +657,7 @@
     update();
   };
 
-  update({ classesChanged: true });
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord };
+  if (state.region != null) selectRegion(state.region, { fly: !params.has("lat") });
+  else update({ classesChanged: true });
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion };
 })();

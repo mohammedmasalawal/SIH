@@ -157,6 +157,8 @@ CLASS_COLORS_DARK = {
     "wildfire": "#008300",
     "unknown": "#6b6a65",
 }
+# Display names on the dashboard; the stored label values never change.
+CLASS_DISPLAY_NAMES = {"unknown": "Unclassified — needs review"}
 
 # --- National map (training/pack_map_points.py -> backend/map_store.py) -------------
 MAP_POINTS_PATH = ROOT_DIR / "data" / "map" / "national_points.bin"

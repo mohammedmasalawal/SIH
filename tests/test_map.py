@@ -142,7 +142,10 @@ def test_export_site_round_trips_details_and_stats(packed, tmp_path):
     alerts = tmp_path / "alerts_history.csv"
     alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,industrial_anomaly,22.1,69.1,2026-01-01\n")
     dist = tmp_path / "dist"
-    summary = export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts)
+    gem = tmp_path / "gem.csv"
+    gem.write_text("facility_name,facility_type,latitude,longitude\nJamnagar Refinery,refinery,22.35,69.85\n")
+    summary = export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts,
+                     facilities_path=gem, industrial_context_path=tmp_path / "no_osm.parquet")
     data = dist / "data"
     assert summary["rows"] == 3 and summary["shards"] == 1
     for name in ("index.html", "static/js/dashboard.js", "vercel.json", "data/meta.json", "data/classes.json",
@@ -159,6 +162,16 @@ def test_export_site_round_trips_details_and_stats(packed, tmp_path):
 
     stats = json.loads(gzip.decompress((data / "stats.json.gz").read_bytes()))
     assert sum(stats["n"]) == 3 and sum(stats["anom"]) == 1
+    # per-row state index lines up with stats.json's state names
+    row_states = [stats["states"][i] for i in gzip.decompress((data / "point_state.bin.gz").read_bytes())]
+    assert row_states[0] == row_states[1] == "Gujarat" and row_states[2] == "Punjab"
+    outlines = json.loads(gzip.decompress((data / "states.json.gz").read_bytes()))
+    assert {"Gujarat", "Punjab"} <= set(outlines["bbox"])
+    facilities = json.loads(gzip.decompress((data / "facilities.json.gz").read_bytes()))
+    assert facilities["name"] == ["Jamnagar Refinery"] and facilities["group"] == [0]
+    assert facilities["lat"] == [2235000] and facilities["kinds"][facilities["kind"][0]] == "refinery"
+    classes = json.loads((data / "classes.json").read_text(encoding="utf-8"))
+    assert classes["display"]["unknown"] == "Unclassified — needs review"
     assert json.loads((data / "meta.json").read_text())["detail_shard_rows"] == index["shard_rows"]
 
 
@@ -167,16 +180,42 @@ def test_export_site_is_stale_tracks_pack_and_alerts(tmp_path):
 
     from training.export_site import is_stale
 
-    meta, alerts, dist = tmp_path / "points.json", tmp_path / "alerts.csv", tmp_path / "dist"
+    meta, alerts, frontend = tmp_path / "points.json", tmp_path / "alerts.csv", tmp_path / "frontend"
     meta.write_text("{}")
     alerts.write_text("alert_id\n")
-    assert is_stale(dist, meta, alerts)  # never exported
-    exported = dist / "data" / "meta.json"
-    exported.parent.mkdir(parents=True)
-    exported.write_text("{}")
-    os.utime(meta, (1_000, 1_000))
+    frontend.mkdir()
+    page = frontend / "index.html"
+    page.write_text("<html></html>")
+    reference = tmp_path / "dist" / ".deployed"
+    assert is_stale(reference, meta, alerts, frontend)  # never deployed
+    reference.parent.mkdir()
+    reference.write_text("x")
+    for path in (meta, alerts, page):
+        os.utime(path, (1_000, 1_000))
+    assert not is_stale(reference, meta, alerts, frontend)
+    os.utime(alerts, None)  # a new alert after the deploy
+    assert is_stale(reference, meta, alerts, frontend)
     os.utime(alerts, (1_000, 1_000))
-    assert not is_stale(dist, meta, alerts)
-    os.utime(alerts, None)  # a new alert after the export
-    os.utime(exported, (2_000, 2_000))
-    assert is_stale(dist, meta, alerts)
+    os.utime(page, None)  # a page change also needs a redeploy
+    assert is_stale(reference, meta, alerts, frontend)
+
+
+def test_site_preflight_data_checks(packed, tmp_path):
+    from training.export_site import export
+    from training.site_preflight import check_alerts, check_points
+
+    _, out_bin, out_meta = packed
+    alerts = tmp_path / "alerts_history.csv"
+    alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,industrial_anomaly,22.1,69.1,2026-01-01\n")
+    dist = tmp_path / "dist"
+    export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts,
+           facilities_path=tmp_path / "none.csv", industrial_context_path=tmp_path / "none.parquet")
+    assert check_points(dist) == [] and check_alerts(dist) == []
+
+    (dist / "data" / "points.bin.gz").write_bytes(b"")
+    assert check_points(dist) == ["data/points.bin.gz is empty"]
+    (dist / "data" / "alerts_history.csv").write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,bogus,abc,69.1,2026-01-01\n")
+    problems = check_alerts(dist)
+    assert any("numeric coordinate" in p for p in problems) and any("bogus" in p for p in problems)
+    (dist / "data" / "alerts_history.csv").unlink()
+    assert check_alerts(dist) == ["data/alerts_history.csv is missing"]

@@ -32,7 +32,16 @@ python make_gold_sample.py --labeled training/data/labeled_hotspots.csv
 
 ### National dashboard (Vercel)
 
-`/` is a static dashboard: every national detection (1.90M) on a GPU map, plus situation KPIs, a class-mix toggle, the top states, a daily timeline per class and the alerts panel. **Live: https://agninetra-one.vercel.app** (public). It needs no backend. `training/export_site.py` writes everything the browser reads into `dist/`, and any static host can serve that folder.
+`/` is a static dashboard. It has:
+
+- every national detection (1.90M) on a GPU map;
+- situation KPIs, a class-mix toggle, the top states and a daily timeline per class;
+- the alerts panel;
+- a **region selector**, which filters the map, KPIs and timeline to one state and outlines it. Its caption reads "Accuracy verified in Gujarat; other states not yet validated", and a badge marks each state as verified or not;
+- a **Known facilities** map layer (off by default);
+- a **Validation & Method** drawer. It explains the labelling rules and gives the Gujarat gold-set results, the parts not yet validated and the data sources. Its numbers are copied from the sections of this README below; update both together.
+
+The `unknown` class is shown as **"Unclassified — needs review"** (`CLASS_DISPLAY_NAMES` in `backend/config.py`; stored labels are unchanged). Each point's popup opens with **Why**, the `label_source` reason: a rule match with the rule in words, "no labelling rule matched", or "more than one labelling rule matched". **Live: https://agninetra-one.vercel.app** (public). It needs no backend. `training/export_site.py` writes everything the browser reads into `dist/`, and any static host can serve that folder.
 
 ```powershell
 python -m training.pack_map_points          # -> data/map/national_points.bin (+ .gz, .json sidecar)
@@ -49,11 +58,22 @@ python main.py                              # local: http://localhost:8000/ serv
 | `meta.json`, `classes.json` | pack layout, date range, export time; class names and colours |
 | `stats.json.gz` | detections (and anomalous) per day × class × state, for the KPIs, states and timeline |
 | `alerts_history.csv` | every live alert |
+| `point_state.bin.gz` | one byte per row id: the detection's state index (`stats.json`'s state order), so the map can filter to a state on the GPU |
+| `states.json.gz` | simplified state outlines and bounding boxes (Natural Earth, `INDIA_BOUNDARY_PATH`) |
+| `facilities.json.gz` | the known-facilities layer, about 35k points. It comes from the same inputs the rules measure distances to: GEM facilities and the OSM industrial-context layer, with solar/wind plants excluded as in the pipeline. OSM polygons are shown as a point inside the outline, grouped as GEM, OSM refinery or fossil/nuclear power plant, or other OSM industrial site |
 | `details/NNNN.json.gz` + `index.json` | full records, 10,000 rows per shard, columnar (coordinates ×1e5, FRP ×100, repeated strings as dictionary codes). A click on a point loads shard `row_id // 10000`, one fetch of about 250 KB, cached after that |
 
 `.gz` files are served as plain `application/gzip`, and the browser decompresses them itself with `DecompressionStream`, so every host behaves the same. Gzip is written with a fixed timestamp, so unchanged shards produce identical bytes. Live data only changes the last shards and the stats, and a redeploy uploads only those. Vercel Hobby limits leave plenty of room: 100 MB per CLI upload, 15,000 files, 100 deploys/day. The project link lives in `dist/.vercel/` (gitignored with the rest of `dist/`), and the first `--deploy` needs `npm i -g vercel` and `vercel login`.
 
-**Auto-deploy:** after each scheduled ingest, `training/run_ingest.cmd` runs `python -m training.export_site --deploy --if-changed`. That step exports and deploys only when the map pack or `alerts_history.csv` is newer than `dist/data/meta.json`. Its output goes to `ingest.log`. A failed deploy never changes the task's result: the ingest exit code is returned. The local server's `/data` also comes from `dist/data`, so it refreshes on the same step.
+**Auto-deploy:** after each scheduled ingest, `training/run_ingest.cmd` runs `python -m training.export_site --deploy --if-changed`. That step exports and deploys only when something is newer than the last successful deploy (`dist/.deployed`): the map pack, `alerts_history.csv` or a page file. A skipped or failed deploy is therefore retried on the next run. Its output, timestamped, goes to `ingest.log`. A failed deploy never changes the task's result: the ingest exit code is returned.
+
+**Pre-deploy checks** (`training/site_preflight.py`, runnable alone as `python -m training.site_preflight`). They run before every `--deploy`. If any check fails, the deploy is skipped and each reason is logged (`Deploy skipped -- pre-deploy checks failed:`):
+
+1. `data/points.bin.gz` exists, is non-empty, and decompresses to the byte count `meta.json` promises.
+2. `data/alerts_history.csv` parses and has the panel's columns. Every row has a numeric coordinate, a valid date and a known `alert_type`, and there are no duplicate `alert_id`s.
+3. The page loads in headless Chrome, served from `dist/` over local HTTP. It must render its points, fill the alerts count and decode one detail record, with no JavaScript exception, console error or failed request. This takes about 6 s. The check looks for Chrome or Edge in the standard install paths; set `AGNINETRA_CHROME` to point elsewhere.
+
+Deliberately breaking the export confirmed that the checks block a deploy for a thrown script error and for a missing data file. The local server's `/data` also comes from `dist/data`, so it refreshes on the same step.
 
 - **Points:** `training/pack_map_points.py` packs these fields, 16 bytes per detection: lon/lat (float32), row id (uint32), day index (uint16), class (uint8) and `is_anomalous` (uint8). Points are stored in draw order so rare classes paint on top: unknown → agricultural burning → wildfire → industrial → gas flare. The row id maps each point back to its parquet row. Repack whenever the parquets change, then re-export: row ids are only valid against the files listed in the sidecar.
 - **Rendering:** MapLibre GL (CARTO dark-matter basemap) with a deck.gl `ScatterplotLayer`. Month range and class toggles filter on the GPU via `DataFilterExtension`, so filter changes never re-upload points. URL parameters `month=YYYY-MM`, `all=1`, `lat`, `lng` and `zoom` set the initial view. Times are shown in IST, with UTC in the popup.
