@@ -3,9 +3,10 @@ change a detection's label. Thresholds live in backend/config.py and are unteste
 starting values (see README "Live alerts").
 
     industrial_anomaly        is_anomalous detection labelled industrial / gas flare
-    fire_near_infrastructure  crop/natural fire within INFRA_FIRE_MAX_DIST_M of energy infrastructure
+    fire_near_infrastructure  one-off detection (any label) within INFRA_FIRE_MAX_DIST_M of a critical facility
     new_unmapped_source       cell with no known facility nearby that started burning repeatedly
-    large_fire_event          same-day cluster of LARGE_FIRE_MIN_DETECTIONS+ within LARGE_FIRE_RADIUS_M
+    large_fire_event          same-day cluster of LARGE_FIRE_MIN_DETECTIONS+ crop/natural fires within
+                              LARGE_FIRE_RADIUS_M, persistent (industrial / coal-seam) cells left out
 
 Every alert has an alert_id that stays the same across runs, so re-evaluating a
 window never raises the same alert twice.
@@ -24,12 +25,15 @@ from sklearn.cluster import DBSCAN
 from backend.config import (
     GAS_FLARE_MAX_DIST_M,
     INDUSTRIAL_HEAT_MAX_DIST_M,
-    INFRA_FIRE_LABELS,
     INFRA_FIRE_MAX_DIST_M,
     INFRA_GEM_FACILITY_TYPES,
-    INFRA_INCLUDE_OSM_POWER_PLANTS,
+    INFRA_MAX_RECURRENCE,
     INFRA_OSM_INDUSTRIAL_TAGS,
+    INFRA_OSM_POWER_SOURCES,
+    LARGE_FIRE_LABELS,
     LARGE_FIRE_MIN_DETECTIONS,
+    LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS,
+    LARGE_FIRE_PERSISTENT_WINDOW_DAYS,
     LARGE_FIRE_RADIUS_M,
     NATIONAL_PROJECTED_CRS,
     UNMAPPED_MAX_PRIOR_ACTIVE_DAYS,
@@ -56,7 +60,8 @@ _FACILITY_DISTANCES = (
 )
 _GEM_KIND = {
     "oil_gas_power_plant": "power plant (oil/gas)", "coal_power_plant": "power plant (coal)",
-    "oil_gas_field": "oil/gas field", "lng_terminal": "LNG terminal",
+    "oil_gas_field": "oil/gas field", "lng_terminal": "LNG terminal", "refinery": "refinery",
+    "chemical_plant": "chemical plant", "cement_plant": "cement plant", "steel_plant": "steel plant",
 }
 
 
@@ -136,9 +141,10 @@ def _column(frame: pd.DataFrame, name: str) -> pd.Series:
 
 
 def load_infrastructure_sites(industrial_path: Path, facilities_path: Path) -> gpd.GeoDataFrame:
-    """Refineries, power plants, LNG terminals and oil/gas fields from GEM and OSM, with
-    a display name and kind, in NATIONAL_PROJECTED_CRS. Reads the raw OSM extract (not
-    the solar/wind-excluded industrial context), so solar and wind plants count."""
+    """Critical facilities with a display name and kind, in NATIONAL_PROJECTED_CRS:
+    GEM facilities of INFRA_GEM_FACILITY_TYPES, OSM industrial=refinery, and OSM
+    power=plant whose plant:source includes a non-renewable fuel (INFRA_OSM_POWER_SOURCES)
+    -- solar and wind plants never count."""
     gem = gpd.read_file(facilities_path) if Path(facilities_path).suffix != ".parquet" else gpd.read_parquet(facilities_path)
     gem = gem[gem["facility_type"].isin(INFRA_GEM_FACILITY_TYPES)]
     gem_sites = gpd.GeoDataFrame({
@@ -149,13 +155,15 @@ def load_infrastructure_sites(industrial_path: Path, facilities_path: Path) -> g
 
     osm = gpd.read_parquet(industrial_path) if Path(industrial_path).suffix == ".parquet" else gpd.read_file(industrial_path)
     tags = _column(osm, "industrial")
-    power = (_column(osm, "power") == "plant") & INFRA_INCLUDE_OSM_POWER_PLANTS
+    sources = _column(osm, "plant:source").fillna("").astype(str).str.lower().str.split(";")
+    non_renewable = sources.map(lambda parts: any(part.strip() in INFRA_OSM_POWER_SOURCES for part in parts))
+    power = (_column(osm, "power") == "plant") & non_renewable
     keep = tags.isin(INFRA_OSM_INDUSTRIAL_TAGS) | power
     osm, tags, power = osm[keep], tags[keep], power[keep]
     kind = np.where(
         power,
-        "power plant (" + _column(osm, "plant:source").fillna("unknown source").astype(str) + ")",
-        np.where(tags == "refinery", "refinery", "oil/gas (" + tags.astype(str) + ")"),
+        "power plant (" + _column(osm, "plant:source").astype(str) + ")",
+        tags.astype(str).str.replace("_", " "),
     )
     osm_sites = gpd.GeoDataFrame({
         "facility_name": _column(osm, "name").fillna("unnamed").to_numpy(),
@@ -168,9 +176,12 @@ def load_infrastructure_sites(industrial_path: Path, facilities_path: Path) -> g
 
 
 def fire_near_infrastructure_alerts(batch: pd.DataFrame, sites: gpd.GeoDataFrame) -> pd.DataFrame:
+    """One-off detections (recurrence_count <= INFRA_MAX_RECURRENCE -- the cell's first
+    active day in the look-back, so not a site that burns routinely), whatever their
+    label, within INFRA_FIRE_MAX_DIST_M of a critical facility."""
     if batch.empty or sites.empty:
         return _empty()
-    fires = batch[batch["label"].isin(INFRA_FIRE_LABELS)]
+    fires = batch[pd.to_numeric(batch["recurrence_count"], errors="coerce") <= INFRA_MAX_RECURRENCE]
     if fires.empty:
         return _empty()
     points = gpd.GeoDataFrame(
@@ -183,7 +194,7 @@ def fire_near_infrastructure_alerts(batch: pd.DataFrame, sites: gpd.GeoDataFrame
     joined = joined[~joined.index.duplicated(keep="first")]
     hits = fires.loc[joined.index].copy()
     hits["facility_name"] = joined["facility_name"]
-    hits["facility_type"] = joined["facility_type"] + " · " + joined["source"]
+    hits["facility_type"] = joined["facility_type"].astype(str) + " · " + joined["source"].astype(str)
     hits["facility_distance_m"] = joined["facility_distance_m"].round(0)
     return _finish(hits, "fire_near_infrastructure", detection_keys(hits))
 
@@ -242,13 +253,31 @@ def new_unmapped_source_alerts(batch: pd.DataFrame, store: pd.DataFrame) -> pd.D
 
 # --- large_fire_event ---------------------------------------------------------------------
 
+def _persistent_cell_mask(store: pd.DataFrame, day: str) -> pd.Series:
+    """Rows of `store` dated `day` whose cell was active (any class) on more than
+    LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS of the LARGE_FIRE_PERSISTENT_WINDOW_DAYS before it."""
+    start = (pd.Timestamp(day) - pd.Timedelta(days=LARGE_FIRE_PERSISTENT_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    prior = store[(store["acq_date"] >= start) & (store["acq_date"] < day)]
+    glat, glon = grid_keys(prior)
+    active = pd.DataFrame({"g1": glat, "g2": glon, "d": prior["acq_date"]}).drop_duplicates().groupby(["g1", "g2"]).size()
+    persistent = active[active > LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS].index
+    today = store[store["acq_date"] == day]
+    tlat, tlon = grid_keys(today)
+    return pd.Series(pd.MultiIndex.from_arrays([tlat, tlon]).isin(persistent), index=today.index)
+
+
 def large_fire_event_alerts(store: pd.DataFrame, dates: list[str]) -> pd.DataFrame:
-    """Same-day clusters of LARGE_FIRE_MIN_DETECTIONS+ detections within LARGE_FIRE_RADIUS_M
-    (DBSCAN), for each date in `dates` -- callers pass only complete days, since a day's
-    later satellite passes can still grow a cluster."""
+    """Same-day clusters of LARGE_FIRE_MIN_DETECTIONS+ crop/natural-fire detections
+    (LARGE_FIRE_LABELS) within LARGE_FIRE_RADIUS_M (DBSCAN), for each date in `dates` --
+    callers pass only complete days, since a day's later satellite passes can still
+    grow a cluster. Detections in persistently active cells are dropped first (see
+    _persistent_cell_mask), so industrial sites and coal-seam fires can't form one."""
     rows = []
     for day in dates:
-        same_day = store[store["acq_date"] == day]
+        same_day = store[(store["acq_date"] == day) & store["label"].isin(LARGE_FIRE_LABELS)]
+        if len(same_day) < LARGE_FIRE_MIN_DETECTIONS:
+            continue
+        same_day = same_day[~_persistent_cell_mask(store, day).reindex(same_day.index).to_numpy()]
         if len(same_day) < LARGE_FIRE_MIN_DETECTIONS:
             continue
         projected = gpd.GeoSeries(

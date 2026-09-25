@@ -95,6 +95,7 @@
       detail: (a) => `${fmtSite(a)} · ${a.facility}`,
       rows: (a) => [
         ["Facility", `${esc(siteName(a))}<br>${esc(a.facility)}`],
+        ["Why", "one-off detection: this cell's first active day in 90 days"],
         ["Distance", esc(fmtDistance(a.facilityDistance))],
         ["FRP", esc(fmtFrp(a.frp))],
       ],
@@ -111,11 +112,12 @@
       ],
     },
     large_fire_event: {
-      title: (a) => `${plural(a.eventCount, "detection")} in one day`,
+      title: (a) => `${plural(a.eventCount, "fire detection")} in one day`,
       metric: (a) => String(a.eventCount),
       detail: (a) => `${fmtSite(a)} · mostly ${a.dominantClass} · ${fmtFrp(a.frp)} total`,
       rows: (a) => [
-        ["Detections", `${esc(a.eventCount)} in one same-day cluster, each within 5 km of another (centre shown)`],
+        ["Detections", `${esc(a.eventCount)} crop/wildfire detections in one same-day cluster, each within 5 km of another (centre shown)`],
+        ["Excludes", "cells active on more than 5 of the previous 30 days (industrial sites, coal-seam fires)"],
         ["Mostly", esc(a.dominantClass)],
         ["Total FRP", esc(fmtFrp(a.frp))],
       ],

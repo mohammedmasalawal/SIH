@@ -110,17 +110,30 @@ def _normalise_raw(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def publish_alerts(
-    alerts: pd.DataFrame, latest_path: Path, history_path: Path, *, only_new: bool = True
+    alerts: pd.DataFrame,
+    latest_path: Path,
+    history_path: Path,
+    *,
+    rescore_window: tuple[date, date] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Write alerts_latest.csv and append unseen alerts to the append-only history.
-    Returns (latest, newly added). only_new=False (re-evaluation) writes every alert
-    evaluated into latest, not just the ones history hasn't seen."""
+    """Write alerts_latest.csv and add unseen alerts to alerts_history.csv. Returns
+    (latest, newly added).
+
+    Normal runs append only (latest = this run's new alerts). rescore_window (used by
+    --alerts-only) instead replaces the history's alerts dated inside that window with
+    `alerts` -- a re-score after the alert definitions change, so alerts the new
+    definitions no longer raise leave the history -- and writes all of them to latest.
+    Alerts dated outside the window are never touched."""
     history = read_alert_history(history_path)
+    if rescore_window is not None:
+        start, end = (d.isoformat() for d in rescore_window)
+        history = history[~history["acq_date"].astype(str).between(start, end)]
     new = drop_known(alerts, history)
-    latest = new if only_new else alerts
+    latest = alerts if rescore_window is not None else new
     _write_atomic(latest, Path(latest_path))
-    if not new.empty:
-        _write_atomic(pd.concat([history, new], ignore_index=True) if not history.empty else new, Path(history_path))
+    if not new.empty or rescore_window is not None:
+        combined = pd.concat([history, new], ignore_index=True) if not history.empty else new
+        _write_atomic(combined.reindex(columns=alerts.columns), Path(history_path))
     return latest, new
 
 
@@ -292,7 +305,8 @@ def reevaluate_alerts(
     """Evaluate every alert type over live detections already stored for [start, end]
     -- after a threshold or alert-type change, without re-fetching anything. Anomaly
     baselines are recomputed from strictly earlier days, so they match what ingestion
-    computed. alerts_latest.csv gets every alert evaluated; the history gets the new ones."""
+    computed. The history's alerts dated inside the window are replaced by this
+    evaluation (see publish_alerts); alerts_latest.csv gets every alert evaluated."""
     today = today or datetime.now(timezone.utc).date()
     history_paths = list(NATIONAL_LABELED_PARQUETS if history_paths is None else history_paths)
     partitions = _live_partitions(live_dir)
@@ -315,7 +329,7 @@ def reevaluate_alerts(
     alerts = build_alerts(
         batch, combined, load_infrastructure_sites(industrial_path, facilities_path), complete_days(start, end, today)
     )
-    publish_alerts(alerts, Path(alerts_path), Path(alerts_path).with_name("alerts_history.csv"), only_new=False)
+    publish_alerts(alerts, Path(alerts_path), Path(alerts_path).with_name("alerts_history.csv"), rescore_window=(start, end))
     return alerts
 
 
@@ -360,7 +374,8 @@ def _parse_args() -> argparse.Namespace:
                         help="recurrence look-back window; 0 = all history")
     parser.add_argument("--no-map", action="store_true", help="skip repacking the map points")
     parser.add_argument("--alerts-only", action="store_true",
-                        help="re-evaluate alerts over live detections already stored for the window (no fetch)")
+                        help="re-score alerts over live detections already stored for the window (no fetch); "
+                             "replaces the window's alerts in alerts_history.csv")
     return parser.parse_args()
 
 

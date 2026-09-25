@@ -183,15 +183,18 @@ RECURRENCE_LOOKBACK_DAYS = 90
 # --- Live alert types (training/alerts.py) -------------------------------------------
 # Untested starting values -- none of these has been checked against verified
 # ground truth yet. Alerts never change a detection's label.
-# fire_near_infrastructure: a natural/crop fire close to energy infrastructure.
-INFRA_FIRE_LABELS = ("agricultural burning", "wildfire")
+# fire_near_infrastructure: a one-off detection (any label) close to a critical facility.
+INFRA_MAX_RECURRENCE = 1  # recurrence_count <= this: the cell's first active day in the look-back
 INFRA_FIRE_MAX_DIST_M = 2_000
-INFRA_GEM_FACILITY_TYPES = ("oil_gas_power_plant", "coal_power_plant", "oil_gas_field", "lng_terminal")
-INFRA_OSM_INDUSTRIAL_TAGS = (  # OSM industrial=* values that are refinery / oil & gas infrastructure
-    "refinery", "oil", "gas", "petroleum_terminal", "oil_storage", "gas_storage", "gas_plant",
-    "natural_gas", "petrochemical",
+INFRA_GEM_FACILITY_TYPES = (  # GEM facility_type values; refinery/steel_plant have no rows in today's file
+    "refinery", "chemical_plant", "oil_gas_power_plant", "coal_power_plant", "lng_terminal",
+    "oil_gas_field", "cement_plant", "steel_plant",
 )
-INFRA_INCLUDE_OSM_POWER_PLANTS = True  # every OSM power=plant, including solar/wind/hydro
+INFRA_OSM_INDUSTRIAL_TAGS = ("refinery",)  # OSM industrial=* values
+# OSM power=plant counts only if a plant:source value (";"-separated) is one of these --
+# non-renewable fuels. Solar, wind, hydro, biomass/biogas/biofuel, waste and untagged
+# plants are all left out.
+INFRA_OSM_POWER_SOURCES = ("coal", "gas", "oil", "diesel", "nuclear")
 # new_unmapped_source: a ~375 m cell that has started burning repeatedly with no known
 # facility nearby.
 UNMAPPED_NO_FACILITY_WITHIN_M = 2_000
@@ -199,6 +202,12 @@ UNMAPPED_WINDOW_DAYS = 30
 UNMAPPED_MIN_ACTIVE_DAYS = 5
 UNMAPPED_MAX_PRIOR_ACTIVE_DAYS = 1  # "wasn't recurring before": at most 1 active day before the window
 # large_fire_event: a same-day cluster (DBSCAN: a detection with >= MIN detections within
-# RADIUS, including itself, seeds a cluster; clusters can chain beyond RADIUS).
+# RADIUS, including itself, seeds a cluster; clusters can chain beyond RADIUS) of crop /
+# natural fires only. Detections in cells active on more than PERSISTENT_MAX_ACTIVE_DAYS
+# of the previous PERSISTENT_WINDOW_DAYS are left out -- industrial sites and coal-seam
+# fires burn most days and would otherwise form an "event" daily.
+LARGE_FIRE_LABELS = ("agricultural burning", "wildfire")
 LARGE_FIRE_RADIUS_M = 5_000
 LARGE_FIRE_MIN_DETECTIONS = 10
+LARGE_FIRE_PERSISTENT_WINDOW_DAYS = 30
+LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS = 5
