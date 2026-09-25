@@ -39,7 +39,7 @@
   // Alert types (training/alerts.py). Rows written before types existed are industrial_anomaly.
   const TYPES = {
     industrial_anomaly: "Industrial anomaly",
-    fire_near_infrastructure: "Fire near infrastructure",
+    new_activity_at_critical_site: "New activity at critical site",
     new_unmapped_source: "New unmapped source",
     large_fire_event: "Large fire event",
   };
@@ -81,7 +81,8 @@
   const VIEW = {
     industrial_anomaly: {
       title: (a) => a.facility,
-      metric: (a) => `${a.ratio?.toFixed(1)}×`,
+      metric: (a) => `${a.ratio?.toFixed(1)}× normal`,
+      metricHint: "FRP as a multiple of this site's normal (median of its earlier days)",
       detail: (a) => `${fmtSite(a)} · ${fmtFrp(a.frp)} vs ${fmtFrp(a.normal)} normal`,
       rows: (a) => [
         ["FRP", `${esc(fmtFrp(a.frp))} — <strong>${esc(a.ratio?.toFixed(1))}×</strong> the site's normal`],
@@ -89,20 +90,22 @@
         ["Facility", `${esc(a.facility)} · ${esc(fmtDistance(a.facilityDistance))}`],
       ],
     },
-    fire_near_infrastructure: {
+    new_activity_at_critical_site: {
       title: siteName,
-      metric: (a) => fmtDistance(a.facilityDistance),
+      metric: (a) => (a.facilityDistance != null && a.facilityDistance < 1 ? "inside" : `${fmtDistance(a.facilityDistance)} away`),
+      metricHint: "Distance to the facility; \"inside\" = within its mapped outline",
       detail: (a) => `${fmtSite(a)} · ${a.facility}`,
       rows: (a) => [
         ["Facility", `${esc(siteName(a))}<br>${esc(a.facility)}`],
-        ["Why", "one-off detection: this cell's first active day in 90 days"],
+        ["Why", "no other activity within ~1 km in the previous 90 days"],
         ["Distance", esc(fmtDistance(a.facilityDistance))],
         ["FRP", esc(fmtFrp(a.frp))],
       ],
     },
     new_unmapped_source: {
       title: () => "Unmapped heat source",
-      metric: (a) => `${a.activeDays} d / 30`,
+      metric: (a) => `${a.activeDays} of 30 days`,
+      metricHint: "Active days at this cell in the last 30 days",
       detail: (a) => `${fmtSite(a)} · first seen ${fmtDay(a.firstSeen)}`,
       rows: (a) => [
         ["Active days", `${esc(a.activeDays)} in the last 30 days (${esc(plural(a.recurrence, "day"))} ever)`],
@@ -113,11 +116,12 @@
     },
     large_fire_event: {
       title: (a) => `${plural(a.eventCount, "fire detection")} in one day`,
-      metric: (a) => String(a.eventCount),
+      metric: (a) => `${a.eventCount} fires`,
+      metricHint: "Crop/wildfire detections in the same-day cluster",
       detail: (a) => `${fmtSite(a)} · mostly ${a.dominantClass} · ${fmtFrp(a.frp)} total`,
       rows: (a) => [
         ["Detections", `${esc(a.eventCount)} crop/wildfire detections in one same-day cluster, each within 5 km of another (centre shown)`],
-        ["Excludes", "cells active on more than 5 of the previous 30 days (industrial sites, coal-seam fires)"],
+        ["Excludes", "detections whose ~1 km area was active on more than 5 of the previous 30 days (industrial sites, coal-seam fires)"],
         ["Mostly", esc(a.dominantClass)],
         ["Total FRP", esc(fmtFrp(a.frp))],
       ],
@@ -198,7 +202,7 @@
       item.innerHTML =
         `<span class="alert-top"><span class="swatch" data-label="${esc(swatchLabel(a))}" style="background:${esc(colorFor(swatchLabel(a)))}"></span>` +
         `<span class="alert-facility">${esc(view.title(a))}</span>` +
-        `<span class="alert-ratio">${esc(view.metric(a))}</span></span>` +
+        `<span class="alert-ratio" title="${esc(view.metricHint)}">${esc(view.metric(a))}</span></span>` +
         `<span class="alert-meta"><span class="alert-badge">${esc(TYPES[a.type])}</span>${esc(a.type === "large_fire_event" ? "" : a.label + " · ")}${esc(fmtDate(a))}</span>` +
         `<span class="alert-meta">${esc(view.detail(a))}</span>`;
       fragment.appendChild(item);

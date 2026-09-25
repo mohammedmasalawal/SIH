@@ -143,7 +143,7 @@ h1 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
   font-size: 11px;
   line-height: 16px;
 }
-.alerts-list { overflow-y: auto; border-top: 1px solid var(--border); }
+.alerts-list { overflow-x: hidden; overflow-y: auto; border-top: 1px solid var(--border); }
 .alert-item[hidden] { display: none; }
 #alerts-panel.collapsed .alerts-note,
 #alerts-panel.collapsed .alerts-filters,
@@ -152,6 +152,7 @@ h1 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
 .alerts-empty { margin: 10px 12px; color: var(--text-muted); font-size: 12px; }
 .alert-item {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* long text wraps instead of widening the list */
   gap: 2px;
   width: 100%;
   padding: 8px 12px;
@@ -170,7 +171,7 @@ h1 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
 .alert-top .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .alert-facility { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .alert-ratio { flex: none; font-variant-numeric: tabular-nums; font-weight: 600; }
-.alert-meta { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.alert-meta { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .detection a { color: var(--accent); }
 
 /* click popup */

@@ -183,18 +183,24 @@ RECURRENCE_LOOKBACK_DAYS = 90
 # --- Live alert types (training/alerts.py) -------------------------------------------
 # Untested starting values -- none of these has been checked against verified
 # ground truth yet. Alerts never change a detection's label.
-# fire_near_infrastructure: a one-off detection (any label) close to a critical facility.
-INFRA_MAX_RECURRENCE = 1  # recurrence_count <= this: the cell's first active day in the look-back
-INFRA_FIRE_MAX_DIST_M = 2_000
-INFRA_GEM_FACILITY_TYPES = (  # GEM facility_type values; refinery/steel_plant have no rows in today's file
+# Activity checks below look at a detection's ~375 m grid cell plus its neighbours within
+# this many cells (1 -> a 3x3 block, ~1.1 km across), so VIIRS geolocation jitter between
+# passes doesn't make a long-active spot look new (or a persistent one look intermittent).
+NEIGHBOURHOOD_RADIUS_CELLS = 1
+# new_activity_at_critical_site: a detection (any label) close to a critical facility,
+# where nothing in its ~1 km neighbourhood was active earlier in the look-back.
+CRITICAL_SITE_MAX_ACTIVE_DAYS = 1  # neighbourhood active days in the look-back, including the detection's own
+CRITICAL_SITE_LOOKBACK_DAYS = RECURRENCE_LOOKBACK_DAYS
+CRITICAL_SITE_MAX_DIST_M = 2_000
+CRITICAL_SITE_GEM_FACILITY_TYPES = (  # GEM facility_type values; refinery/steel_plant have no rows in today's file
     "refinery", "chemical_plant", "oil_gas_power_plant", "coal_power_plant", "lng_terminal",
     "oil_gas_field", "cement_plant", "steel_plant",
 )
-INFRA_OSM_INDUSTRIAL_TAGS = ("refinery",)  # OSM industrial=* values
+CRITICAL_SITE_OSM_INDUSTRIAL_TAGS = ("refinery",)  # OSM industrial=* values
 # OSM power=plant counts only if a plant:source value (";"-separated) is one of these --
 # non-renewable fuels. Solar, wind, hydro, biomass/biogas/biofuel, waste and untagged
 # plants are all left out.
-INFRA_OSM_POWER_SOURCES = ("coal", "gas", "oil", "diesel", "nuclear")
+CRITICAL_SITE_OSM_POWER_SOURCES = ("coal", "gas", "oil", "diesel", "nuclear")
 # new_unmapped_source: a ~375 m cell that has started burning repeatedly with no known
 # facility nearby.
 UNMAPPED_NO_FACILITY_WITHIN_M = 2_000
@@ -203,9 +209,10 @@ UNMAPPED_MIN_ACTIVE_DAYS = 5
 UNMAPPED_MAX_PRIOR_ACTIVE_DAYS = 1  # "wasn't recurring before": at most 1 active day before the window
 # large_fire_event: a same-day cluster (DBSCAN: a detection with >= MIN detections within
 # RADIUS, including itself, seeds a cluster; clusters can chain beyond RADIUS) of crop /
-# natural fires only. Detections in cells active on more than PERSISTENT_MAX_ACTIVE_DAYS
-# of the previous PERSISTENT_WINDOW_DAYS are left out -- industrial sites and coal-seam
-# fires burn most days and would otherwise form an "event" daily.
+# natural fires only. Detections whose ~1 km neighbourhood (NEIGHBOURHOOD_RADIUS_CELLS) was
+# active on more than PERSISTENT_MAX_ACTIVE_DAYS of the previous PERSISTENT_WINDOW_DAYS are
+# left out -- industrial sites and coal-seam fires burn most days and would otherwise form
+# an "event" daily.
 LARGE_FIRE_LABELS = ("agricultural burning", "wildfire")
 LARGE_FIRE_RADIUS_M = 5_000
 LARGE_FIRE_MIN_DETECTIONS = 10

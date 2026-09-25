@@ -12,7 +12,7 @@ from training.alerts import (
     ALERT_COLUMNS,
     complete_days,
     drop_known,
-    fire_near_infrastructure_alerts,
+    new_activity_at_critical_site_alerts,
     large_fire_event_alerts,
     load_infrastructure_sites,
     new_unmapped_source_alerts,
@@ -40,18 +40,19 @@ def sites():
     return plant.to_crs(NATIONAL_PROJECTED_CRS)
 
 
-def test_fire_near_infrastructure_one_off_detections_any_label(sites):
-    batch = pd.DataFrame([
-        _det(25.0 + 1.0 * KM_LAT, 75.0, "2026-09-05", label="industrial"),         # one-off, 1 km -> alert
-        _det(25.0 + 0.5 * KM_LAT, 75.0, "2026-09-05", recurrence_count=4),         # recurring site -> no
-        _det(25.0 + 3.0 * KM_LAT, 75.0, "2026-09-05", label="wildfire"),           # 3 km -> too far
-    ])
-    alerts = fire_near_infrastructure_alerts(batch, sites)
+def test_new_activity_at_critical_site_needs_a_quiet_neighbourhood(sites):
+    new = _det(25.0 + 1.8 * KM_LAT, 75.0, "2026-09-05", label="industrial")          # quiet spot, 1.8 km -> alert
+    busy = _det(25.0 + 0.3 * KM_LAT, 75.0, "2026-09-05")                              # neighbour cell active before
+    far = _det(25.0 + 3.0 * KM_LAT, 75.0, "2026-09-05", label="wildfire")             # 3 km -> too far
+    batch = pd.DataFrame([new, busy, far])
+    earlier = _det(25.0 + 0.3 * KM_LAT + 0.0034, 75.0, "2026-08-20")                 # one cell north of `busy`
+    store = pd.concat([batch, pd.DataFrame([earlier])], ignore_index=True)
+    alerts = new_activity_at_critical_site_alerts(batch, store, sites)
     assert len(alerts) == 1
     alert = alerts.iloc[0]
-    assert alert["alert_type"] == "fire_near_infrastructure" and alert["label"] == "industrial"
+    assert alert["alert_type"] == "new_activity_at_critical_site" and alert["label"] == "industrial"
     assert alert["facility_name"] == "Test CCGT" and alert["facility_type"] == "power plant (oil/gas) · GEM"
-    assert alert["facility_distance_m"] == pytest.approx(1000, rel=0.03)  # EPSG:7755 scale error at 25N ~2%
+    assert alert["facility_distance_m"] == pytest.approx(1800, rel=0.03)  # EPSG:7755 scale error at 25N ~2%
     assert list(alerts.columns) == ALERT_COLUMNS
 
 
@@ -116,7 +117,7 @@ def test_large_fire_event_clusters_crop_and_natural_fires_only():
     assert large_fire_event_alerts(only_industrial, ["2026-09-10"]).empty
 
 
-def test_large_fire_event_skips_persistently_active_cells():
+def test_large_fire_event_skips_persistently_active_neighbourhoods():
     """A coal-seam fire: the same cells burned on 6 of the previous 30 days."""
     cells = [(20.0 + i * 0.2 * KM_LAT, 78.0) for i in range(12)]
     history = [_det(lat, lon, f"2026-09-{d:02d}", label="unknown") for lat, lon in cells for d in (1, 3, 5, 7, 9, 11)]
@@ -129,7 +130,7 @@ def test_large_fire_event_skips_persistently_active_cells():
 def test_rescore_replaces_only_the_window(tmp_path):
     history_path, latest_path = tmp_path / "alerts_history.csv", tmp_path / "alerts_latest.csv"
     def alert(alert_id, day):
-        return {"alert_id": alert_id, "alert_type": "fire_near_infrastructure", "latitude": 20.0, "longitude": 78.0, "acq_date": day}
+        return {"alert_id": alert_id, "alert_type": "new_activity_at_critical_site", "latitude": 20.0, "longitude": 78.0, "acq_date": day}
     pd.DataFrame([alert("old-in-window", "2026-09-05"), alert("outside", "2026-08-05")]).reindex(columns=ALERT_COLUMNS).to_csv(history_path, index=False)
     rescored = pd.DataFrame([alert("new-in-window", "2026-09-06")]).reindex(columns=ALERT_COLUMNS)
     publish_alerts(rescored, latest_path, history_path, rescore_window=(date(2026, 9, 1), date(2026, 9, 23)))
@@ -158,3 +159,27 @@ def test_old_history_upgrades_and_known_alerts_drop(tmp_path):
     candidates = pd.DataFrame([history.iloc[0].to_dict(), moved, elsewhere])
     fresh = drop_known(candidates, history)
     assert fresh["alert_id"].tolist() == ["large_fire_event|2026-09-10|9|9"]
+
+
+def test_neighbourhood_counts_adjacent_cells_but_not_farther():
+    from training.alerts import neighbourhood_active_days
+    step = 0.0034  # one grid cell
+    target = pd.DataFrame([_det(20.0, 78.0, "2026-09-20")])
+    store = pd.DataFrame([
+        _det(20.0 + step, 78.0, "2026-09-10"),        # adjacent cell -> counts
+        _det(20.0, 78.0 - step, "2026-09-11"),        # adjacent cell -> counts
+        _det(20.0 + 2 * step, 78.0, "2026-09-12"),    # two cells away -> doesn't
+        _det(20.0, 78.0, "2026-08-01"),               # own cell, before the window -> doesn't
+    ])
+    assert neighbourhood_active_days(store, target, ["2026-09-01"], ["2026-09-20"]).tolist() == [2]
+
+
+def test_large_fire_event_skips_coal_seam_fire_drifting_between_cells():
+    """Each day the burning lands in a different adjacent cell -- no single cell is
+    persistent, but the ~1 km neighbourhood is."""
+    step = 0.0034
+    cells = [(20.0 + i * 0.2 * KM_LAT, 78.0) for i in range(12)]
+    history = [_det(lat + (k % 3 - 1) * step, lon, f"2026-09-{d:02d}", label="unknown")
+               for lat, lon in cells for k, d in enumerate((1, 3, 5, 7, 9, 11))]
+    today = [_det(lat, lon, "2026-09-20", label="wildfire") for lat, lon in cells]
+    assert large_fire_event_alerts(pd.DataFrame(history + today), ["2026-09-20"]).empty

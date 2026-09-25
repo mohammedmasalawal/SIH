@@ -3,10 +3,11 @@ change a detection's label. Thresholds live in backend/config.py and are unteste
 starting values (see README "Live alerts").
 
     industrial_anomaly        is_anomalous detection labelled industrial / gas flare
-    fire_near_infrastructure  one-off detection (any label) within INFRA_FIRE_MAX_DIST_M of a critical facility
+    new_activity_at_critical_site  detection (any label) within CRITICAL_SITE_MAX_DIST_M of a critical
+                              facility, with no earlier activity in its ~1 km neighbourhood
     new_unmapped_source       cell with no known facility nearby that started burning repeatedly
     large_fire_event          same-day cluster of LARGE_FIRE_MIN_DETECTIONS+ crop/natural fires within
-                              LARGE_FIRE_RADIUS_M, persistent (industrial / coal-seam) cells left out
+                              LARGE_FIRE_RADIUS_M, persistently active (industrial / coal-seam) areas left out
 
 Every alert has an alert_id that stays the same across runs, so re-evaluating a
 window never raises the same alert twice.
@@ -25,17 +26,19 @@ from sklearn.cluster import DBSCAN
 from backend.config import (
     GAS_FLARE_MAX_DIST_M,
     INDUSTRIAL_HEAT_MAX_DIST_M,
-    INFRA_FIRE_MAX_DIST_M,
-    INFRA_GEM_FACILITY_TYPES,
-    INFRA_MAX_RECURRENCE,
-    INFRA_OSM_INDUSTRIAL_TAGS,
-    INFRA_OSM_POWER_SOURCES,
+    CRITICAL_SITE_GEM_FACILITY_TYPES,
+    CRITICAL_SITE_LOOKBACK_DAYS,
+    CRITICAL_SITE_MAX_ACTIVE_DAYS,
+    CRITICAL_SITE_MAX_DIST_M,
+    CRITICAL_SITE_OSM_INDUSTRIAL_TAGS,
+    CRITICAL_SITE_OSM_POWER_SOURCES,
     LARGE_FIRE_LABELS,
     LARGE_FIRE_MIN_DETECTIONS,
     LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS,
     LARGE_FIRE_PERSISTENT_WINDOW_DAYS,
     LARGE_FIRE_RADIUS_M,
     NATIONAL_PROJECTED_CRS,
+    NEIGHBOURHOOD_RADIUS_CELLS,
     UNMAPPED_MAX_PRIOR_ACTIVE_DAYS,
     UNMAPPED_MIN_ACTIVE_DAYS,
     UNMAPPED_NO_FACILITY_WITHIN_M,
@@ -43,12 +46,12 @@ from backend.config import (
 )
 from training.spatial_features import grid_keys
 
-ALERT_TYPES = ("industrial_anomaly", "fire_near_infrastructure", "new_unmapped_source", "large_fire_event")
+ALERT_TYPES = ("industrial_anomaly", "new_activity_at_critical_site", "new_unmapped_source", "large_fire_event")
 ALERT_COLUMNS = [
     "alert_id", "alert_type",
     "latitude", "longitude", "acq_date", "acq_time", "satellite", "daynight", "label", "frp",
     "site_normal_frp", "frp_vs_normal", "prior_active_days",          # industrial_anomaly
-    "facility_type", "facility_name", "facility_distance_m",          # industrial_anomaly, fire_near_infrastructure
+    "facility_type", "facility_name", "facility_distance_m",          # industrial_anomaly, new_activity_at_critical_site
     "active_days_30d", "recurrence_count", "first_seen",              # new_unmapped_source
     "event_count", "dominant_class",                                  # large_fire_event
     "maps_link",
@@ -133,7 +136,51 @@ def industrial_anomaly_alerts(batch: pd.DataFrame) -> pd.DataFrame:
     return _finish(hits, "industrial_anomaly", detection_keys(hits))
 
 
-# --- fire_near_infrastructure ---------------------------------------------------------
+# --- neighbourhood activity ------------------------------------------------------------
+
+def neighbourhood_active_days(
+    store: pd.DataFrame,
+    targets: pd.DataFrame,
+    starts,
+    ends,
+    radius: int = NEIGHBOURHOOD_RADIUS_CELLS,
+) -> np.ndarray:
+    """For each target detection, the number of distinct days in [starts[i], ends[i]]
+    (ISO dates, inclusive) on which any cell within `radius` grid cells of the target's
+    own cell (a 3x3 block for radius 1, ~1.1 km) had a detection in `store`. Looking at
+    the neighbourhood rather than one cell absorbs VIIRS geolocation jitter: the same
+    physical source often lands in an adjacent ~375 m cell from one pass to the next."""
+    if targets.empty:
+        return np.zeros(0, dtype=int)
+    offsets = range(-radius, radius + 1)
+    tlat, tlon = grid_keys(targets)
+    wanted = {(a + da, b + db) for a, b in zip(tlat, tlon) for da in offsets for db in offsets}
+    slat, slon = grid_keys(store)
+    keep = pd.MultiIndex.from_arrays([slat, slon]).isin(list(wanted))
+    active = pd.DataFrame({
+        "g1": slat[keep].to_numpy(), "g2": slon[keep].to_numpy(),
+        "d": store.loc[keep, "acq_date"].astype(str).str[:10].to_numpy(),
+    }).drop_duplicates()
+    # credit each active (cell, day) to every cell within `radius` of it
+    spread = pd.concat(
+        [active.assign(g1=active["g1"] + da, g2=active["g2"] + db) for da in offsets for db in offsets]
+    ).drop_duplicates()
+    by_cell = {key: np.sort(grp["d"].to_numpy().astype("U10")) for key, grp in spread.groupby(["g1", "g2"])}
+    empty = np.array([], dtype="U10")
+    counts = [
+        int(np.searchsorted(days, end, side="right") - np.searchsorted(days, start, side="left"))
+        for days, start, end in (
+            (by_cell.get((a, b), empty), s, e) for a, b, s, e in zip(tlat, tlon, starts, ends)
+        )
+    ]
+    return np.asarray(counts, dtype=int)
+
+
+def _shift(iso_dates: pd.Series, days: int) -> pd.Series:
+    return (pd.to_datetime(iso_dates) + pd.Timedelta(days=days)).dt.strftime("%Y-%m-%d")
+
+
+# --- new_activity_at_critical_site -----------------------------------------------------
 
 def _column(frame: pd.DataFrame, name: str) -> pd.Series:
     """frame[name], or all-missing if the extract has no such tag at all."""
@@ -142,11 +189,11 @@ def _column(frame: pd.DataFrame, name: str) -> pd.Series:
 
 def load_infrastructure_sites(industrial_path: Path, facilities_path: Path) -> gpd.GeoDataFrame:
     """Critical facilities with a display name and kind, in NATIONAL_PROJECTED_CRS:
-    GEM facilities of INFRA_GEM_FACILITY_TYPES, OSM industrial=refinery, and OSM
-    power=plant whose plant:source includes a non-renewable fuel (INFRA_OSM_POWER_SOURCES)
+    GEM facilities of CRITICAL_SITE_GEM_FACILITY_TYPES, OSM industrial=refinery, and OSM
+    power=plant whose plant:source includes a non-renewable fuel (CRITICAL_SITE_OSM_POWER_SOURCES)
     -- solar and wind plants never count."""
     gem = gpd.read_file(facilities_path) if Path(facilities_path).suffix != ".parquet" else gpd.read_parquet(facilities_path)
-    gem = gem[gem["facility_type"].isin(INFRA_GEM_FACILITY_TYPES)]
+    gem = gem[gem["facility_type"].isin(CRITICAL_SITE_GEM_FACILITY_TYPES)]
     gem_sites = gpd.GeoDataFrame({
         "facility_name": _column(gem, "facility_name").fillna("unnamed").to_numpy(),
         "facility_type": gem["facility_type"].map(_GEM_KIND).to_numpy(),
@@ -156,9 +203,9 @@ def load_infrastructure_sites(industrial_path: Path, facilities_path: Path) -> g
     osm = gpd.read_parquet(industrial_path) if Path(industrial_path).suffix == ".parquet" else gpd.read_file(industrial_path)
     tags = _column(osm, "industrial")
     sources = _column(osm, "plant:source").fillna("").astype(str).str.lower().str.split(";")
-    non_renewable = sources.map(lambda parts: any(part.strip() in INFRA_OSM_POWER_SOURCES for part in parts))
+    non_renewable = sources.map(lambda parts: any(part.strip() in CRITICAL_SITE_OSM_POWER_SOURCES for part in parts))
     power = (_column(osm, "power") == "plant") & non_renewable
-    keep = tags.isin(INFRA_OSM_INDUSTRIAL_TAGS) | power
+    keep = tags.isin(CRITICAL_SITE_OSM_INDUSTRIAL_TAGS) | power
     osm, tags, power = osm[keep], tags[keep], power[keep]
     kind = np.where(
         power,
@@ -175,28 +222,36 @@ def load_infrastructure_sites(industrial_path: Path, facilities_path: Path) -> g
     return gpd.GeoDataFrame(sites, geometry="geometry", crs=NATIONAL_PROJECTED_CRS)
 
 
-def fire_near_infrastructure_alerts(batch: pd.DataFrame, sites: gpd.GeoDataFrame) -> pd.DataFrame:
-    """One-off detections (recurrence_count <= INFRA_MAX_RECURRENCE -- the cell's first
-    active day in the look-back, so not a site that burns routinely), whatever their
-    label, within INFRA_FIRE_MAX_DIST_M of a critical facility."""
+def new_activity_at_critical_site_alerts(
+    batch: pd.DataFrame, store: pd.DataFrame, sites: gpd.GeoDataFrame
+) -> pd.DataFrame:
+    """Detections, whatever their label, within CRITICAL_SITE_MAX_DIST_M of a critical
+    facility whose ~1 km neighbourhood had at most CRITICAL_SITE_MAX_ACTIVE_DAYS active
+    days (i.e. only this one) in the CRITICAL_SITE_LOOKBACK_DAYS up to the detection --
+    activity at a spot that has been quiet, not a unit that burns routinely. `store` =
+    every stored detection plus the batch."""
     if batch.empty or sites.empty:
         return _empty()
-    fires = batch[pd.to_numeric(batch["recurrence_count"], errors="coerce") <= INFRA_MAX_RECURRENCE]
-    if fires.empty:
-        return _empty()
     points = gpd.GeoDataFrame(
-        fires, geometry=gpd.points_from_xy(fires["longitude"], fires["latitude"]), crs="EPSG:4326"
+        batch, geometry=gpd.points_from_xy(batch["longitude"], batch["latitude"]), crs="EPSG:4326"
     ).to_crs(NATIONAL_PROJECTED_CRS)
     joined = gpd.sjoin_nearest(
-        points[["geometry"]], sites, max_distance=INFRA_FIRE_MAX_DIST_M, distance_col="facility_distance_m"
+        points[["geometry"]], sites, max_distance=CRITICAL_SITE_MAX_DIST_M, distance_col="facility_distance_m"
     )
     joined = joined.sort_values("facility_distance_m")
     joined = joined[~joined.index.duplicated(keep="first")]
-    hits = fires.loc[joined.index].copy()
+    near = batch.loc[joined.index]
+    if near.empty:
+        return _empty()
+    dates = near["acq_date"].astype(str).str[:10]
+    active_days = neighbourhood_active_days(store, near, _shift(dates, -(CRITICAL_SITE_LOOKBACK_DAYS - 1)), dates)
+    quiet = active_days <= CRITICAL_SITE_MAX_ACTIVE_DAYS
+    hits = near[quiet].copy()
+    joined = joined[quiet]
     hits["facility_name"] = joined["facility_name"]
     hits["facility_type"] = joined["facility_type"].astype(str) + " · " + joined["source"].astype(str)
     hits["facility_distance_m"] = joined["facility_distance_m"].round(0)
-    return _finish(hits, "fire_near_infrastructure", detection_keys(hits))
+    return _finish(hits, "new_activity_at_critical_site", detection_keys(hits))
 
 
 # --- new_unmapped_source ------------------------------------------------------------------
@@ -253,31 +308,29 @@ def new_unmapped_source_alerts(batch: pd.DataFrame, store: pd.DataFrame) -> pd.D
 
 # --- large_fire_event ---------------------------------------------------------------------
 
-def _persistent_cell_mask(store: pd.DataFrame, day: str) -> pd.Series:
-    """Rows of `store` dated `day` whose cell was active (any class) on more than
-    LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS of the LARGE_FIRE_PERSISTENT_WINDOW_DAYS before it."""
+def _persistent_mask(store: pd.DataFrame, detections: pd.DataFrame, day: str) -> np.ndarray:
+    """True for detections (all dated `day`) whose ~1 km neighbourhood was active (any
+    class) on more than LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS of the
+    LARGE_FIRE_PERSISTENT_WINDOW_DAYS before it."""
     start = (pd.Timestamp(day) - pd.Timedelta(days=LARGE_FIRE_PERSISTENT_WINDOW_DAYS)).strftime("%Y-%m-%d")
-    prior = store[(store["acq_date"] >= start) & (store["acq_date"] < day)]
-    glat, glon = grid_keys(prior)
-    active = pd.DataFrame({"g1": glat, "g2": glon, "d": prior["acq_date"]}).drop_duplicates().groupby(["g1", "g2"]).size()
-    persistent = active[active > LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS].index
-    today = store[store["acq_date"] == day]
-    tlat, tlon = grid_keys(today)
-    return pd.Series(pd.MultiIndex.from_arrays([tlat, tlon]).isin(persistent), index=today.index)
+    end = (pd.Timestamp(day) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    window = store[(store["acq_date"] >= start) & (store["acq_date"] <= end)]
+    n = len(detections)
+    return neighbourhood_active_days(window, detections, [start] * n, [end] * n) > LARGE_FIRE_PERSISTENT_MAX_ACTIVE_DAYS
 
 
 def large_fire_event_alerts(store: pd.DataFrame, dates: list[str]) -> pd.DataFrame:
     """Same-day clusters of LARGE_FIRE_MIN_DETECTIONS+ crop/natural-fire detections
     (LARGE_FIRE_LABELS) within LARGE_FIRE_RADIUS_M (DBSCAN), for each date in `dates` --
     callers pass only complete days, since a day's later satellite passes can still
-    grow a cluster. Detections in persistently active cells are dropped first (see
-    _persistent_cell_mask), so industrial sites and coal-seam fires can't form one."""
+    grow a cluster. Detections in persistently active neighbourhoods are dropped first
+    (see _persistent_mask), so industrial sites and coal-seam fires can't form one."""
     rows = []
     for day in dates:
         same_day = store[(store["acq_date"] == day) & store["label"].isin(LARGE_FIRE_LABELS)]
         if len(same_day) < LARGE_FIRE_MIN_DETECTIONS:
             continue
-        same_day = same_day[~_persistent_cell_mask(store, day).reindex(same_day.index).to_numpy()]
+        same_day = same_day[~_persistent_mask(store, same_day, day)]
         if len(same_day) < LARGE_FIRE_MIN_DETECTIONS:
             continue
         projected = gpd.GeoSeries(
@@ -360,7 +413,7 @@ def build_alerts(
     live + batch) with latitude, longitude, acq_date, label, frp."""
     frames = [
         industrial_anomaly_alerts(batch),
-        fire_near_infrastructure_alerts(batch, sites),
+        new_activity_at_critical_site_alerts(batch, store, sites),
         new_unmapped_source_alerts(batch, store),
         large_fire_event_alerts(store, event_dates),
     ]

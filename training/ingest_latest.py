@@ -193,7 +193,7 @@ class RunSummary:
             lines.append(f"    {label:<22}{n:>8,}")
         lines.append(f"  new alerts: {self.alerts:,}")
         for alert_type in ALERT_TYPES:
-            lines.append(f"    {alert_type:<26}{self.alerts_by_type.get(alert_type, 0):>6,}")
+            lines.append(f"    {alert_type:<31}{self.alerts_by_type.get(alert_type, 0):>6,}")
         if self.partitions:
             lines.append("  appended: " + ", ".join(f"{m} +{n:,}" for m, n in sorted(self.partitions.items())))
         if self.map_repacked:
@@ -389,7 +389,7 @@ if __name__ == "__main__":
             alerts = reevaluate_alerts(start, end)
             print(f"Alerts for stored detections {start}..{end}: {len(alerts):,}")
             for alert_type in ALERT_TYPES:
-                print(f"  {alert_type:<26}{int((alerts['alert_type'] == alert_type).sum()):>6,}")
+                print(f"  {alert_type:<31}{int((alerts['alert_type'] == alert_type).sum()):>6,}")
         else:
             summary, _ = run_ingest(
                 start, end, lookback_days=args.lookback_days or None, repack_map=not args.no_map
