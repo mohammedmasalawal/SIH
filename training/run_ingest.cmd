@@ -9,7 +9,8 @@ if not exist "training\data\live\logs" mkdir "training\data\live\logs"
 echo ===== %date% %time% >> "training\data\live\logs\ingest.log"
 ".venv\Scripts\python.exe" -m training.ingest_latest --days 3 %* >> "training\data\live\logs\ingest.log" 2>&1
 set INGEST_EXIT=%errorlevel%
-rem Rebuild the static dashboard and deploy it to Vercel -- only when data or alerts
-rem changed. A failed deploy is logged but never fails the ingest run.
-".venv\Scripts\python.exe" -m training.export_site --deploy --if-changed >> "training\data\live\logs\ingest.log" 2>&1
+rem Rebuild the static dashboard and deploy it to Vercel -- only when data, alerts or the
+rem page changed. Authenticates with VERCEL_TOKEN from .env (not the interactive login);
+rem failed deploys are retried, then logged with the CLI's output, and never fail the run.
+".venv\Scripts\python.exe" -m training.export_site --deploy --if-changed --require-token >> "training\data\live\logs\ingest.log" 2>&1
 exit /b %INGEST_EXIT%

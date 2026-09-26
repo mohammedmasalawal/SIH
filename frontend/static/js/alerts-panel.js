@@ -177,7 +177,7 @@
     };
     setCollapsed(window.matchMedia("(max-width: 640px)").matches);
     toggle.addEventListener("click", () => setCollapsed(!panel.classList.contains("collapsed")));
-    const none = { alerts: [], recolor() {} };
+    const none = { alerts: [], recolor() {}, select: () => false };
 
     let alerts;
     try {
@@ -199,7 +199,7 @@
     countEl.textContent = alerts.length.toLocaleString("en-US");
     if (!alerts.length) {
       list.innerHTML = '<p class="alerts-empty">No alerts recorded yet.</p>';
-      return { alerts, recolor() {} };
+      return { alerts, recolor() {}, select: () => false };
     }
 
     const fragment = document.createDocumentFragment();
@@ -250,7 +250,9 @@
 
     list.addEventListener("click", (event) => {
       const item = event.target.closest(".alert-item");
-      if (!item) return;
+      if (item) selectItem(item);
+    });
+    function selectItem(item) {
       const alert = alerts[Number(item.dataset.index)];
       list.querySelector(".alert-item.selected")?.classList.remove("selected");
       item.classList.add("selected");
@@ -258,14 +260,22 @@
       const zoom = alert.type === "large_fire_event" ? 10 : 12; // an event spans kilometres
       map.flyTo({ center: [alert.lng, alert.lat], zoom: Math.max(map.getZoom(), zoom), essential: true });
       openPopup([alert.lng, alert.lat], popupHtml(alert, colorFor(swatchLabel(alert))));
-    });
+      item.scrollIntoView({ block: "nearest" });
+    }
+    /** Select an alert by alert_id (e.g. from the URL); false if it isn't in the list. */
+    const select = (alertId) => {
+      const index = alerts.findIndex((a) => a.id === alertId);
+      if (index < 0) return false;
+      selectItem(list.querySelector(`.alert-item[data-index="${index}"]`));
+      return true;
+    };
 
     // class colours and names may arrive after the list is built (they come with the point data)
     const recolor = () => {
       list.querySelectorAll(".swatch[data-label]").forEach((s) => { s.style.background = colorFor(s.dataset.label); });
       list.querySelectorAll("[data-class-label]").forEach((s) => { s.textContent = nameFor(s.dataset.classLabel); });
     };
-    return { alerts, recolor };
+    return { alerts, recolor, select };
   }
 
   window.AlertsPanel = { init, parseCsv };

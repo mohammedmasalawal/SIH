@@ -289,6 +289,7 @@
       }
     }
     $("facilities-legend").hidden = !facilitiesToggle.checked && !!facilities;
+    syncControls();
     renderMap();
   });
   function showFacility(i) {
@@ -557,6 +558,7 @@
     url.searchParams.set("month", months[state.monthIndex].key);
     if (state.allYear) url.searchParams.set("all", "1"); else url.searchParams.delete("all");
     if (state.region != null) url.searchParams.set("state", stats.states[state.region]); else url.searchParams.delete("state");
+    if (facilitiesToggle.checked) url.searchParams.set("facilities", "1"); else url.searchParams.delete("facilities");
     history.replaceState(null, "", url);
   }
 
@@ -659,5 +661,14 @@
 
   if (state.region != null) selectRegion(state.region, { fly: !params.has("lat") });
   else update({ classesChanged: true });
+  if (params.get("facilities") === "1") {
+    facilitiesToggle.checked = true;
+    facilitiesToggle.dispatchEvent(new Event("change"));
+  }
+  if (params.get("alert")) {
+    alertsReady.then(({ select }) => {
+      if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
+    });
+  }
   window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion };
 })();

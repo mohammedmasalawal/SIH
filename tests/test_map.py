@@ -219,3 +219,66 @@ def test_site_preflight_data_checks(packed, tmp_path):
     assert any("numeric coordinate" in p for p in problems) and any("bogus" in p for p in problems)
     (dist / "data" / "alerts_history.csv").unlink()
     assert check_alerts(dist) == ["data/alerts_history.csv is missing"]
+
+
+class _FakeVercel:
+    """Stands in for subprocess.run: fails the first `failures` deploy calls."""
+
+    def __init__(self, failures: int, secret: str = "tok_SECRET_123"):
+        self.failures, self.secret, self.calls = failures, secret, []
+
+    def __call__(self, args, env, **kwargs):
+        import subprocess
+
+        self.calls.append((args, env))
+        if len(self.calls) <= self.failures:
+            return subprocess.CompletedProcess(args, 1, stdout=f"uploading... token={self.secret}\n",
+                                               stderr=f"Error: network hiccup {len(self.calls)} ({self.secret})\n")
+        return subprocess.CompletedProcess(args, 0, stdout='{"url": "https://agninetra-abc.vercel.app"}', stderr="")
+
+
+@pytest.fixture
+def linked_dist(tmp_path, monkeypatch):
+    from training import export_site
+
+    monkeypatch.setattr(export_site.shutil, "which", lambda name: "vercel")
+    (tmp_path / ".vercel").mkdir()
+    (tmp_path / ".vercel" / "project.json").write_text("{}")
+    return tmp_path
+
+
+def test_deploy_retries_then_succeeds_with_token_in_env_only(linked_dist):
+    from training.export_site import DEPLOY_MARKER, deploy
+
+    fake, waits = _FakeVercel(failures=2), []
+    url = deploy(linked_dist, token=fake.secret, run=fake, sleep=waits.append)
+    assert url == "https://agninetra-abc.vercel.app"
+    assert waits == [30, 90] and len(fake.calls) == 3
+    for args, env in fake.calls:
+        assert env["VERCEL_TOKEN"] == fake.secret
+        assert not any(fake.secret in a for a in args)  # never on the command line
+    assert (linked_dist / DEPLOY_MARKER).exists()
+
+
+def test_deploy_failure_logs_every_attempt_with_token_redacted(linked_dist):
+    from training.export_site import DEPLOY_MARKER, DeployError, deploy
+
+    fake = _FakeVercel(failures=3)
+    with pytest.raises(DeployError) as caught:
+        deploy(linked_dist, token=fake.secret, run=fake, sleep=lambda s: None)
+    log = caught.value.log
+    assert "failed 3 times" in str(caught.value)
+    for n in (1, 2, 3):
+        assert f"=== attempt {n}: exit status 1 ===" in log and f"network hiccup {n}" in log
+    assert fake.secret not in log and "token=***" in log
+    assert not (linked_dist / DEPLOY_MARKER).exists()
+
+
+def test_deploy_require_token_refuses_interactive_login(linked_dist, monkeypatch):
+    from training import export_site
+
+    monkeypatch.setattr(export_site, "_env", lambda name: "")
+    fake = _FakeVercel(failures=0)
+    with pytest.raises(export_site.DeployError, match="VERCEL_TOKEN is not set"):
+        export_site.deploy(linked_dist, require_token=True, run=fake, sleep=lambda s: None)
+    assert fake.calls == []

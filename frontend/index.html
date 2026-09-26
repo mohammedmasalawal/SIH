@@ -113,11 +113,24 @@
           <tr><td>Independent hold-out set (15 detections, reviewed 23 Sep 2026)</td><td>Rules <b>11/12 = 91.7%</b> on decided rows (73.3% counting 3 uncertain rows); ML model 10/12 = 83.3%</td></tr>
           <tr><td>Agricultural burning</td><td><b>9/10</b> correct</td></tr>
           <tr><td>Wildfire</td><td><b>4/9</b> correct. All 5 misses were crop burning on land WorldCover maps as shrubland.</td></tr>
-          <tr><td>Gas flare</td><td>The rule caught <b>0 of 11</b> visually confirmed flares, because GEM gives the facility's centre, not the flare stack. Those flares are labelled industrial. Five other signals were tested and none separated flares from refinery process heat.</td></tr>
-          <tr><td>Brick-kiln rule (tried)</td><td>3–4 of 10 correct, so it was removed</td></tr>
+          <tr><td>Gas flare</td><td>The rule caught <b>0 of 11</b> visually confirmed flares, because GEM gives the facility's centre, not the flare stack. Those flares are labelled industrial. See "Tested and rejected" below.</td></tr>
         </tbody>
       </table>
       <p class="drawer-note">An earlier 69-row review is not listed: it was used to fix the rules, so it cannot also measure them.</p>
+
+      <h3>Tested and rejected</h3>
+      <p>Five ways to tell a gas flare from ordinary refinery heat, tested on the 11 visually confirmed Jamnagar flares. None worked well enough to adopt:</p>
+      <ul class="rejected">
+        <li><b>GEM facility distance</b> (still the rule, since nothing better was found): caught 0 of 11 flares. The GEM point sits 1.9–3.4 km from the stacks.</li>
+        <li><b>Refinery polygons</b>: caught 7 of 11 flares, but overall agreement fell (66.7% vs 73.3% on the hold-out set) because it calls ordinary refinery heat a flare.</li>
+        <li><b>OSM flare proximity</b> (500 m): caught 7 of 11 flares, but 17 of 45 verified industrial rows were also within 500 m of a mapped flare.</li>
+        <li><b>VIIRS brightness</b> (I4/I5, FRP, day/night): the flare I4 median is higher (326.5 K vs 310.0 K) but the distributions overlap heavily. The other measures show no separation.</li>
+        <li><b>Sentinel-2 SWIR</b> hot pixels: found at 63.6% of flares vs 55.6% of industrial sites, which is no real separation at n = 11.</li>
+      </ul>
+      <p>Also rejected:</p>
+      <ul class="rejected">
+        <li><b>Brick-kiln rule</b> (within 500 m of a mapped kiln): 3 of 7 decided rows correct (3 more uncertain), so it was removed.</li>
+      </ul>
 
       <h3>Not yet validated</h3>
       <ul>

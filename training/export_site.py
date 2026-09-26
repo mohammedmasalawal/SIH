@@ -22,6 +22,12 @@ only changes the last shards -- a redeploy re-uploads just those.
 
 --deploy runs training/site_preflight.py first (points file, alerts CSV, and the page
 in headless Chrome); if any check fails the deploy is skipped and the reason printed.
+
+Authentication: VERCEL_TOKEN (environment, or .env like FIRMS_MAP_KEY) is handed to the
+Vercel CLI through its environment -- never on the command line, so it can't appear in
+a process listing or a traceback, and it is redacted from any CLI output that gets
+logged. Without a token the CLI falls back to the interactive `vercel login`;
+--require-token (used by training/run_ingest.cmd) refuses that fallback.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +67,7 @@ from backend.config import (
     SITE_DIST_DIR,
 )
 from backend.ingestion.context_sources import exclude_renewable_power_plants
+from backend.ingestion.firms_client import _env
 from training.report_by_state import assign_state
 
 DIST_DIR = SITE_DIST_DIR
@@ -80,6 +88,8 @@ _DETAIL_COLUMNS = [
     "latitude", "longitude", "acq_date", "frp", "is_anomalous", *_INT_FIELDS, *_DICT_FIELDS,
 ]
 DEPLOY_MARKER = ".deployed"  # dist/.deployed: written after each successful deploy
+DEPLOY_RETRY_WAITS_S = (30, 90)  # a failed `vercel deploy` is retried after these waits
+DEPLOY_TIMEOUT_S = 900  # one CLI call; a hung upload counts as a failed attempt
 OFFSHORE_STATE = "(offshore/border)"
 FACILITY_GROUPS = [
     "GEM facility (flare-capable / heat industry)",
@@ -292,32 +302,90 @@ def is_stale(
     return any(p.exists() and p.stat().st_mtime > built for p in inputs)
 
 
-def deploy(dist: Path = DIST_DIR) -> str:
-    """vercel deploy --prod of dist/ (links the project on first use). Returns the URL."""
+class DeployError(RuntimeError):
+    """`vercel deploy` failed on every attempt; .log holds each attempt's CLI output (token redacted)."""
+
+    def __init__(self, message: str, log: str):
+        super().__init__(message)
+        self.log = log
+
+
+def _redact(text: str | bytes | None, secret: str) -> str:
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    text = text or ""
+    return text.replace(secret, "***") if secret else text
+
+
+def deploy(
+    dist: Path = DIST_DIR,
+    *,
+    token: str | None = None,
+    require_token: bool = False,
+    retry_waits: tuple[float, ...] = DEPLOY_RETRY_WAITS_S,
+    run=subprocess.run,
+    sleep=time.sleep,
+) -> str:
+    """vercel deploy --prod of dist/ (links the project on first use). Returns the URL.
+
+    Retries after each of retry_waits; if every attempt fails, raises DeployError
+    carrying every attempt's full stdout/stderr with the token redacted."""
     vercel = shutil.which("vercel") or shutil.which("vercel.cmd")
     if vercel is None:
-        raise SystemExit("Vercel CLI not found -- npm i -g vercel, then vercel login")
+        raise DeployError("Vercel CLI not found -- npm i -g vercel", "")
+    token = (token if token is not None else _env("VERCEL_TOKEN")).strip()
+    if require_token and not token:
+        raise DeployError("VERCEL_TOKEN is not set (environment or .env) -- see README 'Vercel token'", "")
     env = {**os.environ, "NO_COLOR": "1", "NO_UPDATE_NOTIFIER": "1"}
+    if token:
+        env["VERCEL_TOKEN"] = token  # the CLI reads it from here; never passed as an argument
+    else:
+        env.pop("VERCEL_TOKEN", None)
+
+    def attempt(args: list[str]) -> tuple[bool, str, str, str]:
+        try:
+            result = run([vercel, *args], env=env, capture_output=True, text=True, timeout=DEPLOY_TIMEOUT_S)
+        except subprocess.TimeoutExpired as error:
+            return False, f"timed out after {DEPLOY_TIMEOUT_S} s", _redact(error.stdout, token), _redact(error.stderr, token)
+        except OSError as error:
+            return False, f"could not start the CLI: {error}", "", ""
+        return (result.returncode == 0, f"exit status {result.returncode}",
+                _redact(result.stdout, token), _redact(result.stderr, token))
+
     if not (dist / ".vercel" / "project.json").exists():
-        subprocess.run([vercel, "link", "--yes", "--project", VERCEL_PROJECT, "--cwd", str(dist)],
-                       check=True, env=env, capture_output=True, text=True)
-    result = subprocess.run([vercel, "deploy", "--prod", "--yes", "--cwd", str(dist)],
-                            check=True, env=env, capture_output=True, text=True)
-    urls = re.findall(r"https://[\w.-]+\.vercel\.app", result.stdout + result.stderr)
-    (dist / DEPLOY_MARKER).write_text(datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    return urls[0] if urls else "(deployed; URL not found in CLI output)"
+        ok, status, out, err = attempt(["link", "--yes", "--project", VERCEL_PROJECT, "--cwd", str(dist)])
+        if not ok:
+            raise DeployError(f"vercel link failed ({status})", f"--- stdout ---\n{out}\n--- stderr ---\n{err}")
+
+    log = []
+    waits = (0, *retry_waits)
+    for number, wait in enumerate(waits, start=1):
+        if wait:
+            print(f"  retrying vercel deploy in {wait:g} s (attempt {number} of {len(waits)})", flush=True)
+            sleep(wait)
+        ok, status, out, err = attempt(["deploy", "--prod", "--yes", "--cwd", str(dist)])
+        if ok:
+            urls = re.findall(r"https://[\w.-]+\.vercel\.app", out + err)
+            (dist / DEPLOY_MARKER).write_text(datetime.now(timezone.utc).isoformat(timespec="seconds"))
+            return urls[0] if urls else "(deployed; URL not found in CLI output)"
+        print(f"  vercel deploy attempt {number} of {len(waits)} failed: {status}", flush=True)
+        log.append(f"=== attempt {number}: {status} ===\n--- stdout ---\n{out.rstrip()}\n--- stderr ---\n{err.rstrip()}")
+    raise DeployError(f"vercel deploy failed {len(waits)} times", "\n".join(log))
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--deploy", action="store_true", help="deploy dist/ to Vercel (production) after exporting")
     parser.add_argument("--if-changed", action="store_true", help="do nothing unless the data changed since the last export")
+    parser.add_argument("--require-token", action="store_true",
+                        help="deploy only with VERCEL_TOKEN (env or .env), never the interactive vercel login")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     from training.site_preflight import preflight
 
+    sys.stdout.reconfigure(line_buffering=True)  # keep log lines in order with stderr
     args = _parse_args()
     stamp = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     reference = DIST_DIR / DEPLOY_MARKER if args.deploy else DIST_DIR / "data" / "meta.json"
@@ -336,4 +404,11 @@ if __name__ == "__main__":
                 print(f"  - {failure}")
             raise SystemExit(1)
         print(f"[{stamp()}] Pre-deploy checks passed")
-        print(f"[{stamp()}] Deployed:", deploy())
+        try:
+            print(f"[{stamp()}] Deployed:", deploy(require_token=args.require_token))
+        except DeployError as error:
+            print(f"[{stamp()}] Deploy FAILED: {error}")
+            if error.log:
+                print("Vercel CLI output (token redacted):")
+                print(error.log)
+            raise SystemExit(1)
