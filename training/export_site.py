@@ -344,7 +344,8 @@ def deploy(
 
     def attempt(args: list[str]) -> tuple[bool, str, str, str]:
         try:
-            result = run([vercel, *args], env=env, capture_output=True, text=True, timeout=DEPLOY_TIMEOUT_S)
+            result = run([vercel, *args], env=env, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace", timeout=DEPLOY_TIMEOUT_S)
         except subprocess.TimeoutExpired as error:
             return False, f"timed out after {DEPLOY_TIMEOUT_S} s", _redact(error.stdout, token), _redact(error.stderr, token)
         except OSError as error:
