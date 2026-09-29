@@ -1,4 +1,4 @@
-// Agninetra dashboard: national map + situation panels + timeline + alerts.
+// AgniNetra dashboard: national map + situation panels + timeline + alerts.
 // Reads only static files under data/ (built by training/export_site.py), so it runs
 // on any static host -- Vercel in production, the local FastAPI server in development.
 (async function () {
@@ -15,7 +15,20 @@
   const TOP_STATES = 7;
   // Stack order in charts: bulk classes first, rare ones on top where they stay visible.
   const STACK_ORDER = ["agricultural burning", "wildfire", "unknown", "industrial", "gas flare"];
-  const VERIFIED_STATES = new Set(["Gujarat"]); // where gold-set review has checked the labels
+  const VERIFIED_STATES = new Set(["Gujarat"]); // the Jamnagar pilot, where gold-set review checked the labels
+  const STALE_AFTER_HOURS = 24; // "Live feed delayed" once the newest detection is older than this
+  const ALERTS_LIVE_START = "2026-09-01"; // training.ingest_latest / alerts_history.csv start date
+  const ALERTS_LIVE_START_LABEL = "1 Sep 2026";
+  // Plain-language definitions, shown on hover / keyboard focus of any .term[data-term]
+  // (also inside map popups and the alerts panel -- the handler is delegated on document).
+  const TERMS = {
+    frp: "Fire radiative power, in MW: the heat a fire gives off, as measured by the satellite.",
+    pixel: "VIIRS sees the ground in pixels about 375 m × 375 m. A detection means at least one fire somewhere in that pixel; it can't be placed more precisely.",
+    candidate: "Raised automatically by a rule with starting thresholds. A person should check it before anyone acts on it.",
+    unclassified: "No labelling rule matched, or more than one did. This is not a fire type: these detections need manual review.",
+    anomalous: "FRP well above this site's own earlier days (one-sided modified z-score above 3.5; only sites with 5+ earlier active days are judged).",
+  };
+  const FALLBACK_STYLE = { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b1117" } }] };
   const ALL_STATES = [0, 255]; // state filter range meaning "no state filter"
   // Hollow rings, kept clear of the class colours: GEM, OSM critical, other OSM industrial.
   const FACILITY_COLORS = ["#ffffff", "#45c1d6", "#8a97a4"];
@@ -42,19 +55,98 @@
   const fmtCount = (n) => Math.round(n).toLocaleString("en-US");
   const pad = (n) => String(n).padStart(2, "0");
   const hexToRgba = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).concat(255);
+  const term = (key, text) => `<span class="term" tabindex="0" data-term="${key}">${text}</span>`;
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  // "2026-09-28T08:52Z" -> "28 Sep 2026, 14:22 IST" (training/site_preflight.py ist_label matches this)
+  function istLabel(isoUtc) {
+    const t = new Date(Date.parse(isoUtc.replace(/Z?$/, "Z")) + 330 * 60000);
+    return `${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]} ${t.getUTCFullYear()}, ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())} IST`;
+  }
+
+  // --- loading / error overlay: never a blank map ------------------------------------------------
+  const overlayEl = $("map-overlay");
+  function showProgress(title, detail, fraction) {
+    overlayEl.hidden = false;
+    overlayEl.classList.remove("failed");
+    $("overlay-title").textContent = title;
+    $("overlay-detail").textContent = detail;
+    $("overlay-bar").style.width = fraction == null ? "" : `${Math.round(fraction * 100)}%`;
+    $("overlay-bar").classList.toggle("indeterminate", fraction == null);
+  }
+  function showFailure(title, detail) {
+    overlayEl.hidden = false;
+    overlayEl.classList.add("failed");
+    $("overlay-title").textContent = title;
+    $("overlay-detail").textContent = detail;
+    $("overlay-retry").hidden = false;
+    statusEl.textContent = title;
+    statusEl.classList.add("error");
+  }
+  $("overlay-retry").addEventListener("click", () => location.reload());
+
+  // --- term tooltips ----------------------------------------------------------------------------
+  const termTip = $("term-tip");
+  function showTerm(el) {
+    const text = TERMS[el.dataset.term];
+    if (!text) return;
+    termTip.textContent = text;
+    termTip.hidden = false;
+    el.setAttribute("aria-describedby", "term-tip");
+    const r = el.getBoundingClientRect(), t = termTip.getBoundingClientRect();
+    termTip.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - t.width - 8))}px`;
+    termTip.style.top = `${r.bottom + t.height + 8 > window.innerHeight ? r.top - t.height - 6 : r.bottom + 6}px`;
+  }
+  function hideTerm(el) { termTip.hidden = true; el?.removeAttribute("aria-describedby"); }
+  document.addEventListener("mouseover", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) showTerm(el); });
+  document.addEventListener("mouseout", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) hideTerm(el); });
+  document.addEventListener("focusin", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) showTerm(el); });
+  document.addEventListener("focusout", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) hideTerm(el); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTerm(); });
 
   // --- static data (gzip-aware: decompress in the browser unless the host already did) ---
-  async function fetchBytes(url) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
+  async function fetchBytes(url, { onProgress, cache } = {}) {
+    const name = url.split("?")[0];
+    let response;
+    try {
+      response = await fetch(url, cache ? { cache } : undefined);
+    } catch (error) {
+      throw new Error(`${name} could not be fetched (${error.message})`);
+    }
+    if (!response.ok) throw new Error(`${name} returned HTTP ${response.status}`);
+    let bytes;
+    if (onProgress && response.body) {
+      const total = Number(response.headers.get("content-length")) || 0;
+      const reader = response.body.getReader();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        onProgress(received, total);
+      }
+      bytes = new Uint8Array(received);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    } else {
+      bytes = new Uint8Array(await response.arrayBuffer());
+    }
     if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
       const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
       return new Uint8Array(await new Response(stream).arrayBuffer());
     }
     return bytes;
   }
-  const fetchJson = async (url) => JSON.parse(new TextDecoder().decode(await fetchBytes(url)));
+  const fetchJson = async (url, options) => JSON.parse(new TextDecoder().decode(await fetchBytes(url, options)));
+  // data files are cached for a year; ?v=<content hash from meta.json> picks the current version
+  let fileVersions = {};
+  const dataUrl = (name) => DATA + name + (fileVersions[name] ? `?v=${fileVersions[name]}` : "");
+
+  if (!window.maplibregl || !window.deck) {
+    showFailure("The map couldn't start", "The map libraries didn't load (check the internet connection), so detections can't be drawn. Reload to try again.");
+    return;
+  }
 
   // --- map ---------------------------------------------------------------------------
   const map = new maplibregl.Map({
@@ -65,7 +157,18 @@
     attributionControl: { compact: true },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-  const mapLoaded = new Promise((resolve) => map.once("load", resolve));
+  // If the basemap can't load, fall back to a plain background so detections still draw.
+  let basemapFallback = false;
+  const mapLoaded = new Promise((resolve) => {
+    map.once("load", resolve);
+    const fallBack = () => {
+      if (basemapFallback || map.loaded()) return;
+      basemapFallback = true;
+      map.setStyle(FALLBACK_STYLE);
+    };
+    map.on("error", () => { if (!map.isStyleLoaded()) fallBack(); });
+    setTimeout(fallBack, 15000);
+  });
 
   let popup = null;
   function openPopup(lngLat, html) {
@@ -87,21 +190,28 @@
   setupMethodDrawer();
 
   let meta, classesInfo, stats, buffer, detailIndex, rowStates, statesInfo;
+  showProgress("Loading detections…", "Fetching the data index", null);
   try {
-    [meta, classesInfo, stats, buffer, detailIndex, rowStates, statesInfo] = await Promise.all([
-      fetchJson(DATA + "meta.json"),
-      fetchJson(DATA + "classes.json"),
-      fetchJson(DATA + "stats.json.gz"),
-      fetchBytes(DATA + "points.bin.gz"),
-      fetchJson(DATA + "details/index.json"),
-      fetchBytes(DATA + "point_state.bin.gz"),
-      fetchJson(DATA + "states.json.gz"),
-      mapLoaded,
+    meta = await fetchJson(DATA + "meta.json", { cache: "no-cache" });
+    fileVersions = meta.files ?? {};
+    const mb = (n) => (n / 1e6).toFixed(1);
+    const loading = `Loading ${fmtCount(meta.count)} detections…`;
+    showProgress(loading, "Starting", 0);
+    [classesInfo, stats, buffer, detailIndex, rowStates, statesInfo] = await Promise.all([
+      fetchJson(dataUrl("classes.json")),
+      fetchJson(dataUrl("stats.json.gz")),
+      fetchBytes(dataUrl("points.bin.gz"), {
+        onProgress: (got, total) => showProgress(loading, total ? `${mb(got)} of ${mb(total)} MB` : `${mb(got)} MB`, total ? got / total : null),
+      }),
+      fetchJson(dataUrl("details/index.json")),
+      fetchBytes(dataUrl("point_state.bin.gz")),
+      fetchJson(dataUrl("states.json.gz")),
     ]);
+    showProgress(loading, basemapFallback ? "Drawing" : "Waiting for the basemap", null);
+    await mapLoaded;
   } catch (error) {
-    statusEl.textContent = `Detections unavailable: ${error.message}`;
-    statusEl.classList.add("error");
-    console.error(error);
+    showFailure("Detections couldn't load", `${error.message}. The rest of the page may still work; reload to try again.`);
+    console.warn(error);
     return;
   }
   timings.fetched = performance.now();
@@ -110,7 +220,7 @@
   alertsReady.then(({ recolor }) => recolor());
   document.querySelectorAll("[data-swatch]").forEach((dt) =>
     dt.insertAdjacentHTML("afterbegin", `<span class="swatch" style="background:${colorFor(dt.dataset.swatch)}"></span>`));
-  $("method-range").textContent = `${meta.base_date} to ${meta.max_date} (UTC dates)`;
+  $("method-range").textContent = `${meta.base_date} to ${meta.data_through_utc ? istLabel(meta.data_through_utc) : meta.max_date}`;
 
   const CLASSES = meta.classes;
   const stackOrder = STACK_ORDER.filter((c) => CLASSES.includes(c)).map((c) => CLASSES.indexOf(c));
@@ -135,7 +245,7 @@
     length: N,
     attributes: {
       getPosition: { value: positions, size: 2 },
-      getFillColor: { value: colors, size: 4 },
+      getFillColor: { value: colors, size: 4, normalized: true },
       getFilterValue: { value: filterValues, size: 2 },
     },
   };
@@ -263,7 +373,7 @@
     }
     return new deck.ScatterplotLayer({
       id: "facilities",
-      data: { length: count, attributes: { getPosition: { value: pos, size: 2 }, getLineColor: { value: lineColors, size: 4 } } },
+      data: { length: count, attributes: { getPosition: { value: pos, size: 2 }, getLineColor: { value: lineColors, size: 4, normalized: true } } },
       radiusUnits: "pixels", getRadius: 4, radiusMinPixels: 3,
       filled: true, getFillColor: [8, 12, 17, 90], stroked: true, lineWidthUnits: "pixels", getLineWidth: 1.5,
       pickable: true,
@@ -274,7 +384,7 @@
     if (facilitiesToggle.checked && !facilities) {
       facilitiesToggle.disabled = true;
       try {
-        facilities = await fetchJson(DATA + "facilities.json.gz");
+        facilities = await fetchJson(dataUrl("facilities.json.gz"));
         facilityLayer = buildFacilityLayer();
         const counts = facilities.groups.map((_, g) => facilities.group.filter((x) => x === g).length);
         $("facilities-legend").innerHTML = facilities.groups.map((name, g) =>
@@ -319,12 +429,17 @@
     return `${t.getUTCDate()} ${t.toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())} IST`;
   }
   function updateStatus() {
+    const through = meta.data_through_utc ? istLabel(meta.data_through_utc) : `${fmtDay(meta.max_day)} (UTC date)`;
     const exported = meta.exported_at ? ` · updated ${istStamp(meta.exported_at)}` : "";
     const shown = state.visible == null ? "" : ` · ${fmtCount(state.visible)} on map`;
-    statusEl.textContent = `Data through ${fmtDay(meta.max_day)}${exported}${shown}`;
-    const ageHours = meta.exported_at ? (Date.now() - Date.parse(meta.exported_at)) / 3.6e6 : Infinity;
-    $("live-dot").className = `live-dot ${ageHours <= 12 ? "live" : "stale"}`;
-    $("live-dot").title = ageHours <= 12 ? "Updated within the last 12 hours" : "Not updated in over 12 hours";
+    statusEl.textContent = `Data through ${through}${exported}${shown}`;
+    const newest = meta.data_through_utc ? Date.parse(meta.data_through_utc.replace(/Z?$/, "Z")) : Date.parse(meta.max_date + "T23:59:00Z");
+    const stale = (Date.now() - newest) / 3.6e6 > STALE_AFTER_HOURS;
+    $("live-dot").className = `live-dot ${stale ? "stale" : "live"}`;
+    $("live-dot").title = stale ? `Newest detection is over ${STALE_AFTER_HOURS} hours old` : `Newest detection is under ${STALE_AFTER_HOURS} hours old`;
+    const banner = $("stale-banner");
+    banner.hidden = !stale;
+    if (stale) banner.textContent = `Live feed delayed — data through ${through}`;
   }
 
   // --- situation KPIs -------------------------------------------------------------------------
@@ -332,28 +447,31 @@
   function renderKpis(agg) {
     const [from, to] = range();
     const perDay = agg.total / agg.days;
-    let compare = "";
+    let compare = "average";
     if (!state.allYear && state.monthIndex > 0) {
       const prev = months[state.monthIndex - 1];
       const prevAgg = aggregate([prev.start, prev.end]);
       const prevPerDay = prevAgg.total / prevAgg.days;
-      if (prevPerDay > 0) {
-        const change = (perDay / prevPerDay - 1) * 100;
-        const cls = change >= 0 ? "delta-up" : "delta-down";
-        compare = `<span class="${cls}">${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toFixed(0)}%</span> vs ${esc(prev.short)} (${fmtCount(prevPerDay)}/day)`;
-      }
+      if (prevPerDay > 0) compare = `${fmtCount(prevPerDay)}/day in ${esc(prev.short)}`;
     }
     const fromIso = dayIso(from), toIso = dayIso(to);
-    const alertsIn = alertList.filter((a) => a.date >= fromIso && a.date <= toIso).length;
+    let alertsValue, alertsSub;
+    if (toIso < ALERTS_LIVE_START) {
+      alertsValue = "–";
+      alertsSub = `Live alerts start ${ALERTS_LIVE_START_LABEL}`;
+    } else {
+      alertsValue = fmtCount(alertList.filter((a) => a.date >= fromIso && a.date <= toIso).length);
+      alertsSub = "raised in period";
+    }
     const partial = !state.allYear && months[state.monthIndex].end - months[state.monthIndex].start + 1 < months[state.monthIndex].fullDays;
     $("kpi-period").textContent = (state.region != null ? `${stats.states[state.region]} · ` : "") + periodLabel() + (partial ? " · to date" : "");
     $("kpis").innerHTML = [
       ["Detections", fmtCount(agg.total), `${agg.days} day${agg.days === 1 ? "" : "s"}`],
-      ["Per day", fmtCount(perDay), compare || "average"],
-      ["Anomalous", fmtCount(agg.anom), agg.total ? `${((agg.anom / agg.total) * 100).toFixed(2)}% of detections` : ""],
-      ["Alerts", fmtCount(alertsIn), "raised in period"],
+      ["Per day", fmtCount(perDay), compare],
+      [term("anomalous", "Anomalous"), fmtCount(agg.anom), agg.total ? `${((agg.anom / agg.total) * 100).toFixed(2)}% of detections` : ""],
+      ["Alerts", alertsValue, alertsSub],
     ].map(([label, value, sub]) =>
-      `<div class="kpi"><div class="kpi-label">${esc(label)}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`
+      `<div class="kpi"><div class="kpi-label">${label.startsWith("<") ? label : esc(label)}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`
     ).join("");
   }
 
@@ -367,7 +485,9 @@
     $("class-mix").innerHTML = stackOrder.map((c) => {
       const share = totals[c] / all;
       const on = state.active.has(c);
-      return `<button type="button" class="ring-btn" data-cls="${c}" aria-pressed="${on}" title="${esc(nameFor(CLASSES[c]))}: ${fmtCount(totals[c])} (${(share * 100).toFixed(1)}%)">
+      const isUnknown = CLASSES[c] === "unknown";
+      return `<button type="button" class="ring-btn${isUnknown ? " term" : ""}" data-cls="${c}" aria-pressed="${on}"${isUnknown ? ' data-term="unclassified"' : ""}
+        aria-label="${esc(nameFor(CLASSES[c]))}: ${fmtCount(totals[c])} detections, ${(share * 100).toFixed(1)}%">
         <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
           <circle cx="26" cy="26" r="${R}" fill="none" stroke="#1e2a36" stroke-width="5"/>
           <circle cx="26" cy="26" r="${R}" fill="none" stroke="${colorFor(CLASSES[c])}" stroke-width="5" stroke-linecap="round"
@@ -402,13 +522,13 @@
     }
     const max = rows[0].total;
     $("states").innerHTML = rows.map((r, i) =>
-      `<div class="state-row${r.index === state.region ? " selected" : ""}" data-i="${i}" title="Show ${esc(r.name)}">
+      `<button type="button" class="state-row${r.index === state.region ? " selected" : ""}" data-i="${i}" aria-label="Show ${esc(r.name)}: ${fmtCount(r.total)} detections">
         <div class="state-line"><span class="state-name">${esc(r.name)}</span><span class="state-count">${fmtCount(r.total)}</span></div>
         <div class="state-bar" style="width:${Math.max(4, (r.total / max) * 100)}%">${
           stackOrder.filter((c) => r.byClass[c] > 0).map((c) =>
             `<span style="flex:${r.byClass[c]};background:${colorFor(CLASSES[c])}"></span>`).join("")
         }</div>
-      </div>`
+      </button>`
     ).join("");
     $("states").onmousemove = (event) => {
       const row = event.target.closest(".state-row");
@@ -464,7 +584,7 @@
     const monthBands = months.map((mo, i) => {
       const x = m.l + mo.start * step, w = (mo.end - mo.start + 1) * step;
       return `<rect class="tl-month" data-month="${i}" x="${x}" y="${m.t}" width="${w}" height="${plotH}"/>` +
-        `<text class="tl-label" x="${x + 2}" y="${height - 4}" fill="#6f7d8b" font-size="10">${esc(mo.short)}</text>`;
+        `<text class="tl-label" x="${x + 2}" y="${height - 4}" fill="#8593a1" font-size="10">${esc(mo.short)}</text>`;
     }).join("");
     chartEl.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Detections per day, stacked by class">
       ${ticks}<rect id="tl-selected" class="tl-selected" x="0" y="${m.t}" width="0" height="${plotH}"/>${paths}${monthBands}
@@ -487,7 +607,7 @@
     if (day < 0 || day >= nDays) { tlTip.hidden = true; cursor?.setAttribute("visibility", "hidden"); return; }
     const x = timelineGeom.m.l + (day + 0.5) * timelineGeom.step;
     cursor?.setAttribute("x1", x); cursor?.setAttribute("x2", x); cursor?.setAttribute("visibility", "visible");
-    tlTip.innerHTML = `<div class="tip-title">${esc(fmtDay(day))} · ${fmtCount(timelineGeom.totals[day])}</div>` +
+    tlTip.innerHTML = `<div class="tip-title">${esc(fmtDay(day))} (UTC) · ${fmtCount(timelineGeom.totals[day])}</div>` +
       stackOrder.filter((c) => state.active.has(c) && dayClass[day][c] > 0).slice().reverse().map((c) =>
         `<div class="tip-row"><span class="swatch" style="background:${colorFor(CLASSES[c])}"></span>${esc(nameFor(CLASSES[c]))}<b>${fmtCount(dayClass[day][c])}</b></div>`).join("");
     placeTip(tlTip, event);
@@ -505,6 +625,23 @@
     update();
   });
   new ResizeObserver(() => renderTimeline()).observe(chartEl);
+  // keyboard: arrows step through months, Home/End jump to the first/last
+  chartEl.tabIndex = 0;
+  chartEl.setAttribute("role", "group");
+  chartEl.setAttribute("aria-label", "Timeline. Left and right arrow keys change the month.");
+  chartEl.addEventListener("keydown", (event) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    let next = null;
+    if (step) next = Math.min(months.length - 1, Math.max(0, (state.allYear ? months.length - 1 : state.monthIndex) + step));
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = months.length - 1;
+    if (next == null) return;
+    event.preventDefault();
+    stopPlay();
+    state.allYear = false;
+    state.monthIndex = next;
+    update();
+  });
 
   // --- region selector -----------------------------------------------------------------------
   const stateSelect = $("state-select");
@@ -520,9 +657,9 @@
     stateSelect.value = index == null ? "" : String(index);
     const name = index == null ? null : stats.states[index];
     const note = $("state-validation");
-    if (name == null) note.textContent = "Accuracy verified in Gujarat; other states not yet validated.";
-    else if (VERIFIED_STATES.has(name)) note.innerHTML = '<span class="badge verified">verified</span>Accuracy verified in Gujarat (Jamnagar gold sets); other states not yet validated.';
-    else note.innerHTML = `<span class="badge unvalidated">not validated</span>Accuracy verified in Gujarat; ${esc(name)} not yet validated.`;
+    if (name == null) note.textContent = "Accuracy verified in the Jamnagar pilot, Gujarat; other states not yet validated.";
+    else if (VERIFIED_STATES.has(name)) note.innerHTML = '<span class="badge verified">verified</span>Accuracy verified in the Jamnagar pilot, Gujarat; the rest of the state and other states not yet validated.';
+    else note.innerHTML = `<span class="badge unvalidated">not validated</span>Accuracy verified in the Jamnagar pilot, Gujarat; ${esc(name)} not yet validated.`;
     const outline = statesInfo.outlines.features.filter((f) => f.properties.name === name);
     map.getSource("region-outline").setData({ type: "FeatureCollection", features: outline });
     if (fly) {
@@ -577,7 +714,7 @@
   const shardCache = new Map();
   async function detailRecord(rowId) {
     const shard = Math.floor(rowId / detailIndex.shard_rows);
-    if (!shardCache.has(shard)) shardCache.set(shard, fetchJson(`${DATA}details/${String(shard).padStart(4, "0")}.json.gz`));
+    if (!shardCache.has(shard)) shardCache.set(shard, fetchJson(dataUrl(`details/${String(shard).padStart(4, "0")}.json.gz`)));
     const cols = await shardCache.get(shard);
     const i = rowId - shard * detailIndex.shard_rows;
     const dict = (f) => (cols[f][i] >= 0 ? detailIndex.dicts[f][cols[f][i]] : null);
@@ -607,9 +744,9 @@
     const rows = [
       ["Date", fmtTime(d.acq_date, d.acq_time)],
       ["Day/night", d.daynight === "D" ? "Day" : d.daynight === "N" ? "Night" : "n/a"],
-      ["FRP", d.frp == null ? "n/a" : `${esc(d.frp)} MW`],
+      [term("frp", "FRP"), d.frp == null ? "n/a" : `${esc(d.frp)} MW`],
       ["Recurrence", d.recurrence_count == null ? "n/a" : `${esc(d.recurrence_count)} day${d.recurrence_count === 1 ? "" : "s"} at this cell`],
-      ["Anomalous", d.is_anomalous ? "Yes" : "No"],
+      [term("anomalous", "Anomalous"), d.is_anomalous ? "Yes" : "No"],
       ["Landcover", d.landcover_class == null ? "n/a" : `${esc(LANDCOVER[d.landcover_class] ?? "Unknown")} (${esc(d.landcover_class)})`],
       ["Heat industry", facility(d.nearest_heat_facility_type, d.dist_to_heat_industry_m)],
       ["Flare-capable", facility(d.nearest_flare_facility_type, d.dist_to_flare_capable_m)],
@@ -620,7 +757,7 @@
     ];
     const reason = d.label_source === "rule" ? LABEL_REASONS.rule[d.label] : LABEL_REASONS[d.label_source];
     rows.unshift(["Why", `<span class="reason">${esc(reason ?? `label source: ${d.label_source ?? "n/a"}`)}</span>`]);
-    return `<div class="detection"><h2><span class="swatch" style="background:${colorFor(d.label)}"></span>${esc(nameFor(d.label))}</h2><dl>` +
+    return `<div class="detection"><h2><span class="swatch" style="background:${colorFor(d.label)}"></span>${d.label === "unknown" ? term("unclassified", esc(nameFor(d.label))) : esc(nameFor(d.label))}</h2><dl>` +
       rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") + "</dl></div>";
   }
 
@@ -645,7 +782,15 @@
     opener.addEventListener("click", () => setOpen(true));
     $("method-close").addEventListener("click", () => setOpen(false));
     backdrop.addEventListener("click", () => setOpen(false));
-    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !drawer.hidden) setOpen(false); });
+    document.addEventListener("keydown", (event) => {
+      if (drawer.hidden) return;
+      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Tab") return;
+      const focusable = [...drawer.querySelectorAll("button, [href], [tabindex='0']")].filter((el) => !el.hidden);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
     if (params.get("method") === "1") setOpen(true);
   }
 
@@ -659,8 +804,26 @@
     update();
   };
 
+  // --- reset view ------------------------------------------------------------------------------
+  $("reset-view").addEventListener("click", () => {
+    stopPlay();
+    if (popup) popup.remove();
+    history.replaceState(null, "", location.pathname); // drop lat/lng/zoom/alert/... from the URL
+    state.allYear = false;
+    state.monthIndex = months.length - 1;
+    CLASSES.forEach((_, i) => state.active.add(i));
+    facilitiesToggle.checked = false;
+    if (facilities) $("facilities-legend").hidden = true;
+    document.querySelector(".alert-item.selected")?.classList.remove("selected");
+    selectRegion(null); // re-renders everything
+    map.flyTo({ center: [INDIA.lng, INDIA.lat], zoom: INDIA.zoom, duration: 900 });
+  });
+
   if (state.region != null) selectRegion(state.region, { fly: !params.has("lat") });
   else update({ classesChanged: true });
+  overlayEl.hidden = true;
+  if (basemapFallback) $("stale-banner").insertAdjacentHTML("afterend",
+    '<div class="basemap-note" role="status">Basemap unavailable — detections shown on a plain background.</div>');
   if (params.get("facilities") === "1") {
     facilitiesToggle.checked = true;
     facilitiesToggle.dispatchEvent(new Event("change"));
@@ -670,5 +833,5 @@
       if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
     });
   }
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion };
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, states: stats.states };
 })();

@@ -160,3 +160,14 @@ def test_run_lock_blocks_overlap(tmp_path):
                 pass
     with RunLock(tmp_path / "ingest.lock"):  # released after the first run
         pass
+
+
+def test_failed_run_traceback_never_contains_the_map_key():
+    from training.ingest_latest import _redacted_traceback
+
+    key = "27dcSECRETKEYc3c7"
+    try:
+        raise ConnectionError(f"HTTPSConnectionPool: Max retries exceeded with url: /api/area/csv/{key}/VIIRS_SNPP_NRT/world/1")
+    except ConnectionError as error:
+        text = _redacted_traceback(error, [key, ""])
+    assert key not in text and "/api/area/csv/***/VIIRS_SNPP_NRT" in text and "Traceback" in text

@@ -3,26 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Agninetra Thermal Watch</title>
-  <meta name="description" content="VIIRS thermal detections across India, classified and monitored for alerts." />
+  <title>AgniNetra — Thermal Watch for India</title>
+  <meta name="description" content="Every VIIRS thermal detection across India, classified as crop burning, wildfire, industry or gas flare, with live candidate alerts. SIH 2026 · PS 26162." />
+  <meta name="application-name" content="AgniNetra" />
+  <meta name="theme-color" content="#080c11" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="AgniNetra" />
+  <meta property="og:title" content="AgniNetra — Thermal Watch for India" />
+  <meta property="og:description" content="Every VIIRS thermal detection across India, classified as crop burning, wildfire, industry or gas flare, with live candidate alerts. SIH 2026 · PS 26162." />
+  <meta property="og:url" content="https://agninetra-one.vercel.app/" />
+  <meta property="og:image" content="https://agninetra-one.vercel.app/static/img/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="AgniNetra dashboard: a dark map of India covered in coloured fire detections, with situation panels and a timeline" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="AgniNetra — Thermal Watch for India" />
+  <meta name="twitter:description" content="Every VIIRS thermal detection across India, classified as crop burning, wildfire, industry or gas flare, with live candidate alerts. SIH 2026 · PS 26162." />
+  <meta name="twitter:image" content="https://agninetra-one.vercel.app/static/img/og-image.png" />
+  <meta name="twitter:image:alt" content="AgniNetra dashboard: a dark map of India covered in coloured fire detections, with situation panels and a timeline" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="/static/css/dashboard.css" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27none%27 stroke=%27%2345c1d6%27 stroke-width=%273%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%275%27 fill=%27%2345c1d6%27/%3E%3C/svg%3E" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
-        <div class="brand-name">AGNINETRA</div>
-        <div class="brand-sub">Thermal watch · India · VIIRS 375 m</div>
+        <h1 class="brand-name">AgniNetra</h1>
+        <div class="brand-sub">Thermal watch · India · VIIRS <span class="term" tabindex="0" data-term="pixel">375 m</span></div>
       </div>
     </div>
     <div id="period-chip" class="period-chip" aria-live="polite">—</div>
     <button id="method-open" type="button" class="method-btn" aria-controls="method-drawer" aria-expanded="false">Validation &amp; Method</button>
     <div class="status">
       <span id="live-dot" class="live-dot" aria-hidden="true"></span>
-      <span id="status">Loading detections…</span>
+      <span id="status" aria-live="polite">Loading detections…</span>
     </div>
   </header>
 
@@ -30,7 +48,7 @@
     <section class="panel">
       <h2 class="panel-title"><label for="state-select">Region</label></h2>
       <select id="state-select" class="state-select"><option value="">All India</option></select>
-      <p id="state-validation" class="validation-note">Accuracy verified in Gujarat; other states not yet validated.</p>
+      <p id="state-validation" class="validation-note">Accuracy verified in the Jamnagar pilot, Gujarat; other states not yet validated.</p>
     </section>
     <section class="panel">
       <h2 class="panel-title">Situation <span id="kpi-period" class="panel-sub"></span></h2>
@@ -51,12 +69,22 @@
     <div class="map-layers">
       <label><input id="facilities-toggle" type="checkbox" /> Known facilities</label>
       <div id="facilities-legend" class="facilities-legend" hidden></div>
+      <button id="reset-view" type="button" class="reset-btn">Reset view</button>
+    </div>
+    <div id="stale-banner" class="stale-banner" role="status" hidden></div>
+    <div id="map-overlay" class="map-overlay" role="status" aria-live="polite">
+      <div class="overlay-card">
+        <div id="overlay-title" class="overlay-title">Loading detections…</div>
+        <div class="progress" aria-hidden="true"><div id="overlay-bar" class="progress-bar"></div></div>
+        <div id="overlay-detail" class="overlay-detail">Starting…</div>
+        <button id="overlay-retry" type="button" class="method-btn" hidden>Reload</button>
+      </div>
     </div>
   </main>
 
   <section class="timeline panel" aria-label="Timeline">
     <div class="timeline-head">
-      <h2 class="panel-title">Timeline <span class="panel-sub">detections per day · click a month</span></h2>
+      <h2 class="panel-title">Timeline <span class="panel-sub">detections per day (UTC days) · click a month or use ← →</span></h2>
       <div class="timeline-controls">
         <button id="play" type="button" class="icon-btn" aria-label="Play months">&#9654;</button>
         <label class="all-year"><input id="all-year" type="checkbox" /> All year</label>
@@ -71,12 +99,18 @@
       <h2 id="alerts-title" class="panel-title">Alerts <span id="alerts-count" class="alerts-count">…</span></h2>
       <button id="alerts-toggle" type="button" aria-controls="alerts-list" aria-expanded="true">Hide</button>
     </header>
-    <p class="alerts-note">Newest first. Starting thresholds, not yet validated.</p>
+    <p class="alerts-note"><span class="term" tabindex="0" data-term="candidate">Candidate alerts</span>, newest first, times in IST. Starting thresholds, not yet validated.</p>
     <div id="alerts-filters" class="alerts-filters" role="group" aria-label="Filter alerts by type"></div>
     <div id="alerts-list" class="alerts-list"><p class="alerts-empty">Loading alerts…</p></div>
   </aside>
 
   <div id="states-tip" class="chart-tip" role="tooltip" hidden></div>
+  <div id="term-tip" class="chart-tip term-tip" role="tooltip" hidden></div>
+
+  <footer class="site-footer">
+    <span><b>AgniNetra</b><span id="footer-team"> · Team Netra AI</span> · SIH 2026 · PS 26162</span>
+    <span>Data: NASA FIRMS (VIIRS) · ESA WorldCover · © OpenStreetMap contributors · Global Energy Monitor · Natural Earth · Basemap © CARTO</span>
+  </footer>
 
   <div id="method-backdrop" class="drawer-backdrop" hidden></div>
   <aside id="method-drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="method-title" hidden>
@@ -85,7 +119,7 @@
       <button id="method-close" type="button" class="icon-btn" aria-label="Close">&#10005;</button>
     </header>
     <div class="drawer-body">
-      <p class="drawer-callout"><strong>Accuracy has been checked only in Gujarat</strong> (Jamnagar region, hand-verified against satellite imagery). Labels in every other state are unvalidated weak labels.</p>
+      <p class="drawer-callout"><strong>Verified in the Jamnagar pilot, Gujarat.</strong> Labels were hand-checked against satellite imagery there, and only there. Labels in every other state are unvalidated.</p>
 
       <h3>What the map shows</h3>
       <p>Every VIIRS 375 m thermal detection over India from NASA FIRMS (Suomi NPP, NOAA-20, NOAA-21), <span id="method-range">the full period on record</span>. Live near-real-time detections are added every 6 hours. Times are shown in IST.</p>
@@ -106,17 +140,22 @@
       </dl>
       <p>Fire intensity (FRP) is never used to assign a label. Day/night is also left out on purpose so it can serve as an independent sanity check. <strong>Anomalous</strong> means the detection's FRP is a robust outlier (one-sided modified z-score &gt; 3.5) against the same site's earlier days, and only for sites with at least 5 earlier active days.</p>
 
-      <h3>Validation results (Gujarat)</h3>
-      <table class="method-table">
-        <thead><tr><th>Check</th><th>Result</th></tr></thead>
+      <h3>Validation results (Jamnagar pilot, Gujarat)</h3>
+      <table class="method-table accuracy-table">
+        <thead><tr><th>Label</th><th>Correct / checked</th><th>Precision</th><th>95% range</th></tr></thead>
         <tbody>
-          <tr><td>Independent hold-out set (15 detections, reviewed 23 Sep 2026)</td><td>Rules <b>11/12 = 91.7%</b> on decided rows (73.3% counting 3 uncertain rows); ML model 10/12 = 83.3%</td></tr>
-          <tr><td>Agricultural burning</td><td><b>9/10</b> correct</td></tr>
-          <tr><td>Wildfire</td><td><b>4/9</b> correct. All 5 misses were crop burning on land WorldCover maps as shrubland.</td></tr>
-          <tr><td>Gas flare</td><td>The rule caught <b>0 of 11</b> visually confirmed flares, because GEM gives the facility's centre, not the flare stack. Those flares are labelled industrial. See "Tested and rejected" below.</td></tr>
+          <tr><td>Industrial</td><td>11 / 12</td><td>92%</td><td>65–99%</td></tr>
+          <tr><td>Agricultural burning</td><td>9 / 10</td><td>90%</td><td>60–98%</td></tr>
+          <tr><td>Wildfire</td><td>4 / 9</td><td>44%</td><td>19–73%</td></tr>
+          <tr><td>ML model (all labels)</td><td>10 / 12</td><td>83%</td><td>55–95%</td></tr>
         </tbody>
       </table>
-      <p class="drawer-note">An earlier 69-row review is not listed: it was used to fix the rules, so it cannot also measure them.</p>
+      <ul class="table-notes">
+        <li><b>Industrial:</b> of the 12 independent hold-out detections the rules labelled industrial, 11 were verified industrial; the 12th was a gas flare.</li>
+        <li><b>Wildfire:</b> all 5 misses were crop burning on land ESA WorldCover maps as shrubland.</li>
+        <li><b>Gas flares:</b> all 11 verified flares were detected and classified as industrial; separating flares from other process heat inside refineries isn't possible at 375 m (5 methods tested, below).</li>
+      </ul>
+      <p class="drawer-note">The 95% ranges are Wilson score intervals. With samples this small they are wide: the true accuracy could be anywhere in the range. An earlier 69-row review is not counted here, because it was used to fix the rules and so can't also measure them.</p>
 
       <h3>Tested and rejected</h3>
       <p>Five ways to tell a gas flare from ordinary refinery heat, tested on the 11 visually confirmed Jamnagar flares. None worked well enough to adopt:</p>
@@ -134,7 +173,7 @@
 
       <h3>Not yet validated</h3>
       <ul>
-        <li>Every state except Gujarat. Coverage of OpenStreetMap industrial sites also varies a lot between states.</li>
+        <li>Everywhere outside the Jamnagar pilot area. Coverage of OpenStreetMap industrial sites also varies a lot between states.</li>
         <li>Wildfire labels that rest on shrubland: 7.25% nationally, but concentrated in Andhra Pradesh and Karnataka, where they make up 38.1% and 51.7% of wildfire labels. If the Gujarat pattern holds there, many of these may be crop burning.</li>
         <li>Wildfire labels on grassland (18.6% nationally) have not been tested.</li>
         <li>Every alert threshold is an untested starting value.</li>

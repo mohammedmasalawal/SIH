@@ -8,9 +8,16 @@ preflight() returns a list of failure reasons (empty = safe to deploy):
    point count data/meta.json promises;
 2. data/alerts_history.csv parses, has the columns the alerts panel reads, and every
    row has a coordinate, a date and a known alert type;
-3. the page loads in headless Chrome, served from dist/ over local HTTP exactly as
-   a static host would, and renders the points, the alerts list and one click-detail
-   record with no JavaScript exception or console error.
+3. consistency: an independent recount from the source parquets (the files the map
+   pack lists) and training/data/live/alerts_history.csv must match the exported data
+   exactly -- total, per class, per state x class, anomalous, the latest detection time,
+   and every point inside an Indian state (no offshore/border bucket);
+4. the page loads in headless Chrome, served from dist/ over local HTTP exactly as
+   a static host would, with no JavaScript exception, console error or failed request,
+   and what it *displays* matches the recount: the detections KPI, class rings, top
+   states, alert counts per type and the "Data through" time, for All India / all
+   year, the latest month, Gujarat, and Gujarat with a class switched off -- and in
+   each view the number of points the GPU filter draws equals the KPI.
 """
 
 from __future__ import annotations
@@ -28,12 +35,24 @@ import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import duckdb
+import numpy as np
 import pandas as pd
 
-from backend.config import SITE_DIST_DIR
+from backend.classification.rules import CLASSES
+from backend.config import ALERTS_HISTORY_PATH, CLASS_DISPLAY_NAMES, MAP_POINTS_META_PATH, ROOT_DIR, SITE_DIST_DIR
+from training.report_by_state import assign_state
 
 ALERT_COLUMNS = ("alert_id", "alert_type", "latitude", "longitude", "acq_date")
 ALERT_TYPES = ("industrial_anomaly", "new_activity_at_critical_site", "new_unmapped_source", "large_fire_event")
+# as the alerts panel names them (frontend/static/js/alerts-panel.js TYPES)
+ALERT_TYPE_NAMES = {
+    "industrial_anomaly": "Industrial anomaly", "new_activity_at_critical_site": "New activity at critical site",
+    "new_unmapped_source": "New unmapped source", "large_fire_event": "Large fire event",
+}
+AUDIT_STATE = "Gujarat"  # the state view the page audit checks
+AUDIT_CLASS_OFF = "agricultural burning"  # switched off in the last audit view
+OFFSHORE_STATE = "(offshore/border)"
 PAGE_TIMEOUT_S = 90
 _CHROME_CANDIDATES = (
     os.environ.get("AGNINETRA_CHROME", ""),
@@ -91,6 +110,119 @@ def check_alerts(dist: Path) -> list[str]:
     return failures
 
 
+def _fmt_count(n: int) -> str:
+    return f"{int(n):,}"
+
+
+def ist_label(utc_iso: str) -> str:
+    """'2026-09-28T08:52Z' -> '28 Sep 2026, 14:22 IST' (the dashboard's format)."""
+    t = pd.Timestamp(utc_iso.rstrip("Z")) + pd.Timedelta(minutes=330)
+    return f"{t.day} {t.strftime('%b %Y')}, {t.strftime('%H:%M')} IST"
+
+
+def source_counts(meta_path: Path = MAP_POINTS_META_PATH, states_path: Path | None = None) -> dict:
+    """Recount everything the dashboard shows, straight from the source parquets."""
+    sources = json.loads(Path(meta_path).read_text())["sources"]
+    paths = [Path(s["path"]) if Path(s["path"]).is_absolute() else ROOT_DIR / s["path"] for s in sources]
+    listing = "[" + ",".join("'" + p.as_posix().replace("'", "''") + "'" for p in paths) + "]"
+    rows = duckdb.sql(
+        f"select latitude, longitude, label, cast(acq_date as varchar) as acq_date, "
+        f"cast(acq_time as varchar) as acq_time, coalesce(cast(is_anomalous as boolean), false) as anom "
+        f"from read_parquet({listing}, union_by_name=true)"
+    ).df()
+    rows["acq_date"] = rows["acq_date"].str[:10]
+    state = (assign_state(rows[["latitude", "longitude"]], states_path) if states_path
+             else assign_state(rows[["latitude", "longitude"]])).fillna(OFFSHORE_STATE)
+    hhmm = pd.to_numeric(rows["acq_time"], errors="coerce").fillna(0).astype(int)
+    stamps = pd.to_datetime(rows["acq_date"]) + pd.to_timedelta(hhmm // 100, unit="h") + pd.to_timedelta(hhmm % 100, unit="m")
+    by_state_class = rows.assign(state=state).groupby(["state", "label"]).size()
+    latest_month = rows["acq_date"].max()[:7]
+    in_state = state == AUDIT_STATE
+    return {
+        "total": len(rows),
+        "anomalous": int(rows["anom"].sum()),
+        "by_class": {c: int(v) for c, v in rows["label"].value_counts().items()},
+        "by_state_class": {f"{s}|{c}": int(v) for (s, c), v in by_state_class.items()},
+        "by_state": {s: int(v) for s, v in state.value_counts().items()},
+        "max_date": rows["acq_date"].max(),
+        "data_through_utc": stamps.max().strftime("%Y-%m-%dT%H:%MZ"),
+        "latest_month": latest_month,
+        "latest_month_total": int((rows["acq_date"].str[:7] == latest_month).sum()),
+        "audit_state_by_class": {c: int(v) for c, v in rows.loc[in_state, "label"].value_counts().items()},
+    }
+
+
+def check_consistency(dist: Path, expected: dict, alerts_source: Path = ALERTS_HISTORY_PATH) -> list[str]:
+    """The exported files against the source recount (source_counts)."""
+    data = Path(dist) / "data"
+    failures = []
+    meta = json.loads((data / "meta.json").read_text())
+    stats = json.loads(gzip.decompress((data / "stats.json.gz").read_bytes()))
+    n = np.array(stats["n"])
+    exported_class = {CLASSES[c]: int(n[np.array(stats["cls"]) == c].sum()) for c in set(stats["cls"])}
+    exported_state_class = {}
+    for s_i, c_i, count in zip(stats["state"], stats["cls"], stats["n"]):
+        key = f"{stats['states'][s_i]}|{CLASSES[c_i]}"
+        exported_state_class[key] = exported_state_class.get(key, 0) + count
+    raw = gzip.decompress((data / "points.bin.gz").read_bytes())
+    layout = meta["layout"]["class_id"]
+    drawn = np.bincount(np.frombuffer(raw, np.uint8, count=layout["length"], offset=layout["offset"]), minlength=len(CLASSES))
+    drawn_class = {CLASSES[i]: int(v) for i, v in enumerate(drawn) if v}
+    point_state = np.frombuffer(gzip.decompress((data / "point_state.bin.gz").read_bytes()), np.uint8)
+
+    def same(what, got, want):
+        if got != want:
+            failures.append(f"consistency: {what}: exported {got!r} != source {want!r}")
+
+    same("total detections (meta.json)", meta["count"], expected["total"])
+    same("total detections (stats.json)", int(n.sum()), expected["total"])
+    same("points per row id (point_state.bin)", len(point_state), expected["total"])
+    same("detections per class (stats.json)", exported_class, expected["by_class"])
+    same("points drawn per class (points.bin)", drawn_class, expected["by_class"])
+    diff = {k for k in set(exported_state_class) | set(expected["by_state_class"])
+            if exported_state_class.get(k) != expected["by_state_class"].get(k)}
+    if diff:
+        sample = sorted(diff)[:5]
+        failures.append(f"consistency: per state x class differs for {len(diff)} cells, e.g. "
+                        + ", ".join(f"{k}: {exported_state_class.get(k)} vs {expected['by_state_class'].get(k)}" for k in sample))
+    same("anomalous detections", int(sum(stats["anom"])), expected["anomalous"])
+    same("data through (date)", meta["max_date"], expected["max_date"])
+    same("data through (latest detection, UTC)", meta.get("data_through_utc"), expected["data_through_utc"])
+    outside = expected["by_state"].get(OFFSHORE_STATE, 0)
+    if outside or OFFSHORE_STATE in stats["states"]:
+        failures.append(f"consistency: {outside:,} detections fall outside every Indian state polygon")
+    exported_alerts, source_alerts = data / "alerts_history.csv", Path(alerts_source)
+    if source_alerts.exists() and exported_alerts.read_bytes() != source_alerts.read_bytes():
+        failures.append("consistency: data/alerts_history.csv differs from training/data/live/alerts_history.csv")
+    return failures
+
+
+def expected_display(expected: dict, alerts_csv: Path) -> dict:
+    """What the page must show, formatted the way the dashboard formats it."""
+    name = lambda c: CLASS_DISPLAY_NAMES.get(c, c)
+    states = sorted(((s, v) for s, v in expected["by_state"].items() if s != OFFSHORE_STATE), key=lambda sv: -sv[1])
+    alerts = pd.read_csv(alerts_csv, dtype=str, keep_default_na=False)
+    by_type = alerts["alert_type"].value_counts()
+    audit = expected["audit_state_by_class"]
+    audit_total = sum(audit.values())
+    return {
+        "all": {
+            "kpi": _fmt_count(expected["total"]), "visible": expected["total"],
+            "rings": {name(c): _fmt_count(expected["by_class"].get(c, 0)) for c in CLASSES},
+            "states": {s: _fmt_count(v) for s, v in states},
+            "top_state": states[0][0] if states else None,
+            "chips": [f"All {len(alerts)}"] + [f"{ALERT_TYPE_NAMES[t]} {by_type[t]}" for t in ALERT_TYPES if by_type.get(t)],
+            "data_through": f"Data through {ist_label(expected['data_through_utc'])}",
+        },
+        "month": {"kpi": _fmt_count(expected["latest_month_total"]), "visible": expected["latest_month_total"],
+                  "key": expected["latest_month"]},
+        "state": {"kpi": _fmt_count(audit_total), "visible": audit_total,
+                  "rings": {name(c): _fmt_count(audit.get(c, 0)) for c in CLASSES}},
+        "state_minus": {"kpi": _fmt_count(audit_total - audit.get(AUDIT_CLASS_OFF, 0)),
+                        "visible": audit_total - audit.get(AUDIT_CLASS_OFF, 0)},
+    }
+
+
 def _chrome() -> str | None:
     for candidate in _CHROME_CANDIDATES:
         if candidate and (Path(candidate).exists() or shutil.which(candidate)):
@@ -125,12 +257,65 @@ _PAGE_PROBE = """(async () => {
     await new Promise(r => setTimeout(r, 200));
   let detail = null;
   try { detail = await d.detailRecord(0); } catch (e) { return {error: 'detail shard: ' + e.message}; }
-  return {count: d.meta.count, alerts: document.getElementById('alerts-count').textContent,
-          detailLabel: detail && detail.label, status: document.getElementById('status').textContent};
+  const out = {count: d.meta.count, alerts: document.getElementById('alerts-count').textContent,
+               detailLabel: detail && detail.label, status: document.getElementById('status').textContent};
+  // display audit: read what each view shows once the GPU filter count has settled
+  const pause = (ms) => new Promise(r => setTimeout(r, ms));
+  const settle = async () => {
+    let last = null, stable = 0;
+    for (let i = 0; i < 80 && stable < 3; i++) {
+      await new Promise(r => requestAnimationFrame(() => r())); await pause(60);
+      stable = d.state.visible === last ? stable + 1 : 0; last = d.state.visible;
+    }
+  };
+  const read = () => ({
+    kpi: document.querySelector('.kpi .kpi-value').textContent,
+    visible: d.state.visible,
+    rings: Object.fromEntries([...document.querySelectorAll('.ring-btn')].map(b =>
+      [b.querySelector('.ring-name').textContent, b.querySelector('.ring-count').textContent])),
+    states: [...document.querySelectorAll('.state-row')].map(r =>
+      [r.querySelector('.state-name').textContent, r.querySelector('.state-count').textContent]),
+  });
+  await settle();
+  out.all = {...read(), status: document.getElementById('status').textContent,
+             chips: [...document.querySelectorAll('#alerts-filters button')].map(b => b.textContent.trim())};
+  d.state.allYear = false; d.state.monthIndex = d.months.length - 1; d.update();
+  await settle(); out.month = {...read(), key: d.months[d.state.monthIndex].key};
+  d.state.allYear = true; d.selectRegion(d.states.indexOf('%s'));
+  await settle(); out.state = read();
+  d.state.active.delete(d.meta.classes.indexOf('%s')); d.update({classesChanged: true});
+  await settle(); out.state_minus = read();
+  return out;
 })()"""
 
 
-def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S) -> list[str]:
+def _compare_display(shown: dict, want: dict) -> list[str]:
+    failures = []
+    for view, label in (("all", "All India, all year"), ("month", "latest month"),
+                        ("state", AUDIT_STATE), ("state_minus", f"{AUDIT_STATE} without {AUDIT_CLASS_OFF}")):
+        got, exp = shown.get(view) or {}, want[view]
+        if got.get("kpi") != exp["kpi"]:
+            failures.append(f"page ({label}): Detections KPI shows {got.get('kpi')!r}, source says {exp['kpi']!r}")
+        if got.get("visible") != exp["visible"]:
+            failures.append(f"page ({label}): map draws {got.get('visible')!r} points, source says {exp['visible']!r}")
+        if "rings" in exp and got.get("rings") != exp["rings"]:
+            failures.append(f"page ({label}): class counts {got.get('rings')} != source {exp['rings']}")
+    got, exp = shown.get("all") or {}, want["all"]
+    for name, count in got.get("states", []):
+        if exp["states"].get(name) != count:
+            failures.append(f"page: top states shows {name} {count}, source says {exp['states'].get(name)}")
+    if got.get("states") and got["states"][0][0] != exp["top_state"]:
+        failures.append(f"page: top state is {got['states'][0][0]!r}, source says {exp['top_state']!r}")
+    if got.get("chips") != exp["chips"]:
+        failures.append(f"page: alert counts {got.get('chips')} != alerts_history.csv {exp['chips']}")
+    if exp["data_through"] not in (got.get("status") or ""):
+        failures.append(f"page: status {got.get('status')!r} lacks {exp['data_through']!r}")
+    if (shown.get("month") or {}).get("key") != want["month"]["key"]:
+        failures.append(f"page: latest month is {(shown.get('month') or {}).get('key')!r}, source says {want['month']['key']!r}")
+    return failures
+
+
+def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S, want: dict | None = None) -> list[str]:
     from websockets.sync.client import connect
 
     chrome = _chrome()
@@ -138,7 +323,7 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S) -> list[str]:
         return ["headless Chrome check: no Chrome/Edge found (set AGNINETRA_CHROME)"]
     server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_QuietHandler, directory=str(dist)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    url = f"http://127.0.0.1:{server.server_address[1]}/?all=1"
     port = _free_port()
     profile = tempfile.mkdtemp(prefix="agninetra-preflight-")
     browser = subprocess.Popen(
@@ -186,7 +371,7 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S) -> list[str]:
             send("Runtime.enable")
             send("Log.enable")
             send("Page.navigate", url=url)
-            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000),
+            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF),
                           awaitPromise=True, returnByValue=True)
             time.sleep(1.5)
             send("Runtime.evaluate", expression="1")  # drain errors logged after the probe
@@ -203,6 +388,8 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S) -> list[str]:
             failures.append("page could not decode a detail record")
         elif not str(value.get("alerts", "")).replace(",", "").isdigit():
             failures.append(f"alerts panel did not load (count shows {value.get('alerts')!r})")
+        elif want is not None:
+            failures.extend(_compare_display(value, want))
         return failures
     finally:
         browser.kill()
@@ -211,12 +398,17 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S) -> list[str]:
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def preflight(dist: Path = SITE_DIST_DIR) -> list[str]:
+def preflight(dist: Path = SITE_DIST_DIR, meta_path: Path = MAP_POINTS_META_PATH,
+              alerts_source: Path = ALERTS_HISTORY_PATH) -> list[str]:
     failures = check_points(dist) + check_alerts(dist)
-    if failures:  # don't bother loading a page whose data is already known bad
+    if failures:  # don't bother with the rest when the data is already known bad
+        return failures
+    expected = source_counts(meta_path)
+    failures = check_consistency(dist, expected, alerts_source)
+    if failures:
         return failures
     try:
-        return check_page(dist)
+        return check_page(dist, want=expected_display(expected, Path(dist) / "data" / "alerts_history.csv"))
     except Exception as error:  # the check itself broke: still a reason not to deploy
         return [f"headless Chrome check failed to run: {type(error).__name__}: {error}"]
 

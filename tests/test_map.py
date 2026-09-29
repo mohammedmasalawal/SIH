@@ -172,6 +172,13 @@ def test_export_site_round_trips_details_and_stats(packed, tmp_path):
     assert facilities["lat"] == [2235000] and facilities["kinds"][facilities["kind"][0]] == "refinery"
     classes = json.loads((data / "classes.json").read_text(encoding="utf-8"))
     assert classes["display"]["unknown"] == "Unclassified — needs review"
+    meta = json.loads((data / "meta.json").read_text())
+    assert meta["data_through_utc"] == "2026-02-10T06:26Z"  # newest detection: 2026-02-10 06:26 UTC
+    # every data file is versioned by content hash (the page requests file?v=<hash>)
+    assert set(meta["files"]) >= {"points.bin.gz", "stats.json.gz", "details/0000.json.gz", "details/index.json"}
+    assert "meta.json" not in meta["files"]
+    vercel = json.loads((dist / "vercel.json").read_text())
+    assert any("immutable" in h["headers"][0]["value"] for h in vercel["headers"])
     assert json.loads((data / "meta.json").read_text())["detail_shard_rows"] == index["shard_rows"]
 
 
@@ -198,6 +205,38 @@ def test_export_site_is_stale_tracks_pack_and_alerts(tmp_path):
     os.utime(alerts, (1_000, 1_000))
     os.utime(page, None)  # a page change also needs a redeploy
     assert is_stale(reference, meta, alerts, frontend)
+
+
+def test_site_preflight_consistency_against_sources(packed, tmp_path):
+    from training.export_site import export
+    from training.site_preflight import check_consistency, expected_display, ist_label, source_counts
+
+    _, out_bin, out_meta = packed
+    alerts = tmp_path / "alerts_history.csv"
+    alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,industrial_anomaly,22.1,69.1,2026-01-01\n")
+    dist = tmp_path / "dist"
+    export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts,
+           facilities_path=tmp_path / "none.csv", industrial_context_path=tmp_path / "none.parquet")
+    expected = source_counts(out_meta)
+    assert expected["total"] == 3 and expected["by_class"]["industrial"] == 1
+    assert expected["by_state"] == {"Gujarat": 2, "Punjab": 1}
+    assert check_consistency(dist, expected, alerts) == []
+
+    want = expected_display(expected, alerts)
+    assert want["all"]["data_through"] == "Data through 10 Feb 2026, 11:56 IST"
+    assert want["all"]["chips"] == ["All 1", "Industrial anomaly 1"]
+    assert want["state"]["kpi"] == "2" and want["month"]["kpi"] == "1"
+    assert ist_label("2026-09-28T20:40Z") == "29 Sep 2026, 02:10 IST"  # IST rolls into the next day
+
+    # a tampered export is caught
+    stats_path = dist / "data" / "stats.json.gz"
+    stats = json.loads(gzip.decompress(stats_path.read_bytes()))
+    stats["n"][0] += 1
+    stats_path.write_bytes(gzip.compress(json.dumps(stats).encode()))
+    problems = check_consistency(dist, expected, alerts)
+    assert any("per class" in p for p in problems) and any("total detections (stats.json)" in p for p in problems)
+    alerts.write_text(alerts.read_text() + "y,large_fire_event,22.2,69.2,2026-01-02\n")
+    assert any("alerts_history.csv differs" in p for p in check_consistency(dist, expected, alerts))
 
 
 def test_site_preflight_data_checks(packed, tmp_path):

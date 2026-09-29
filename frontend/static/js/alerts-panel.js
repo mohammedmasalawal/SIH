@@ -72,7 +72,7 @@
     return { day: fmtDay(t.toISOString().slice(0, 10)), time: `${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}` };
   }
   const fmtDate = (a) => {
-    if (!a.time) return fmtDay(a.date); // day-level alerts (events, first seen) keep the FIRMS date
+    if (!a.time) return `${fmtDay(a.date)} (UTC date)`; // day-level alerts (events) keep the FIRMS date
     const ist = istParts(a.date, a.time);
     return `${ist.day} ${ist.time} IST`;
   };
@@ -80,6 +80,8 @@
   const fmtFrp = (v) => (v == null ? "n/a" : `${v.toFixed(v < 10 ? 2 : 1)} MW`);
   const fmtDistance = (m) => (m == null ? "n/a" : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`);
   const fmtSite = (a) => `${a.lat.toFixed(4)}°N, ${a.lng.toFixed(4)}°E`;
+  // definitions are shown by the dashboard's delegated tooltip handler (TERMS in dashboard.js)
+  const term = (key, text) => `<span class="term" tabindex="0" data-term="${key}">${text}</span>`;
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const siteName = (a) => (a.facilityName && a.facilityName !== "unnamed" ? a.facilityName : `Unnamed ${a.facility.split(" · ")[0]}`);
   const swatchLabel = (a) => (a.type === "large_fire_event" ? a.dominantClass : a.label);
@@ -92,7 +94,7 @@
       metricHint: "FRP as a multiple of this site's normal (median of its earlier days)",
       detail: (a) => `${fmtSite(a)} · ${fmtFrp(a.frp)} vs ${fmtFrp(a.normal)} normal`,
       rows: (a) => [
-        ["FRP", `${esc(fmtFrp(a.frp))} — <strong>${esc(a.ratio?.toFixed(1))}×</strong> the site's normal`],
+        [term("frp", "FRP"), `${esc(fmtFrp(a.frp))} — <strong>${esc(a.ratio?.toFixed(1))}×</strong> the site's normal`],
         ["Site normal", `${esc(fmtFrp(a.normal))} (median of ${esc(a.priorDays)} prior days)`],
         ["Facility", `${esc(a.facility)} · ${esc(fmtDistance(a.facilityDistance))}`],
       ],
@@ -106,18 +108,18 @@
         ["Facility", `${esc(siteName(a))}<br>${esc(a.facility)}`],
         ["Why", "no other activity within ~1 km in the previous 90 days"],
         ["Distance", a.facilityDistance != null && a.facilityDistance < 1 ? "inside the facility's mapped outline" : esc(fmtDistance(a.facilityDistance))],
-        ["FRP", esc(fmtFrp(a.frp))],
+        [term("frp", "FRP"), esc(fmtFrp(a.frp))],
       ],
     },
     new_unmapped_source: {
       title: () => "Unmapped heat source",
       metric: (a) => `${a.activeDays} of 30 days`,
       metricHint: "Active days at this cell in the last 30 days",
-      detail: (a) => `${fmtSite(a)} · first seen ${fmtDay(a.firstSeen)}`,
+      detail: (a) => `${fmtSite(a)} · first seen ${fmtDay(a.firstSeen)} (UTC)`,
       rows: (a) => [
         ["Active days", `${esc(a.activeDays)} in the last 30 days (${esc(plural(a.recurrence, "day"))} ever)`],
-        ["First seen", esc(fmtDay(a.firstSeen))],
-        ["Max FRP", esc(fmtFrp(a.frp))],
+        ["First seen", `${esc(fmtDay(a.firstSeen))} (UTC date)`],
+        [term("frp", "Max FRP"), esc(fmtFrp(a.frp))],
         ["Nearby", "no known facility within 2 km"],
       ],
     },
@@ -130,7 +132,7 @@
         ["Detections", `${esc(a.eventCount)} crop/wildfire detections in one same-day cluster, each within 5 km of another (centre shown)`],
         ["Excludes", "detections whose ~1 km area was active on more than 5 of the previous 30 days (industrial sites, coal-seam fires)"],
         ["Mostly", esc(a.dominantClass)],
-        ["Total FRP", esc(fmtFrp(a.frp))],
+        [term("frp", "Total FRP"), esc(fmtFrp(a.frp))],
       ],
     },
   };
@@ -139,11 +141,11 @@
 
   function popupHtml(a, color) {
     const satellite = `https://www.google.com/maps?q=${a.lat},${a.lng}&t=k`; // built here, not taken from the file
-    const when = a.time ? `${esc(fmtDate(a))} (${esc(fmtUtc(a))})` : `${esc(fmtDate(a))} (UTC date)`;
+    const when = a.time ? `${esc(fmtDate(a))} (${esc(fmtUtc(a))})` : esc(fmtDate(a));
     const rows = [
-      ["Type", esc(TYPES[a.type])],
+      ["Type", `${term("candidate", "Candidate alert")}: ${esc(TYPES[a.type])}`],
       ["Date", when],
-      ...(a.type === "large_fire_event" ? [] : [["Class", esc(nameFor(a.label))]]),
+      ...(a.type === "large_fire_event" ? [] : [["Class", a.label === "unknown" ? term("unclassified", esc(nameFor(a.label))) : esc(nameFor(a.label))]]),
       ...VIEW[a.type].rows(a),
       ["Location", `${esc(fmtSite(a))} · <a href="${esc(satellite)}" target="_blank" rel="noopener">satellite view</a>`],
     ];

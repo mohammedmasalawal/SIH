@@ -3,7 +3,8 @@ files, so it can be served by any static host (Vercel) with no backend:
 
     dist/index.html, dist/static/...     the dashboard (copied from frontend/)
     dist/data/points.bin.gz              packed points (training/pack_map_points.py)
-    dist/data/meta.json                  pack layout + class order + export time
+    dist/data/meta.json                  pack layout, export time, latest detection time, and a
+                                         content hash per data file (written last)
     dist/data/classes.json               class names and colours
     dist/data/stats.json.gz              detections per day x class x state (+ anomalous)
     dist/data/alerts_history.csv         every alert raised by live ingestion
@@ -11,6 +12,11 @@ files, so it can be served by any static host (Vercel) with no backend:
     dist/data/point_state.bin.gz         uint8 state index per row id (stats.json's state order)
     dist/data/states.json.gz             state outlines (simplified) + bounding boxes
     dist/data/facilities.json.gz         known facilities: GEM points + OSM industrial context
+
+Caching: every data file except meta.json and alerts_history.csv is served with a
+one-year immutable Cache-Control, and the page requests it as <file>?v=<content hash
+from meta.json> -- a changed file gets a new URL, an unchanged one comes from the
+browser cache. meta.json and the alerts CSV always revalidate.
 
 A click resolves a point's row id to shard row_id // DETAIL_SHARD_ROWS. Row ids follow
 the pack's source order (historical files, then live months), so appending live data
@@ -34,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -96,12 +103,21 @@ FACILITY_GROUPS = [
     "OSM refinery or fossil / nuclear power plant",
     "Other OSM industrial site",
 ]
-_SITE_FILES = ("index.html", "static/css/dashboard.css", "static/js/dashboard.js", "static/js/alerts-panel.js")
+_SITE_FILES = (
+    "index.html", "static/css/dashboard.css", "static/js/dashboard.js", "static/js/alerts-panel.js",
+    "favicon.svg", "favicon-32.png", "apple-touch-icon.png", "static/img/og-image.png",
+)
+_REVALIDATE = [{"key": "Cache-Control", "value": "public, max-age=0, must-revalidate"}]
 _VERCEL_JSON = {
     "cleanUrls": True,
     "headers": [
-        # always revalidate: data changes every ingest run; unchanged files answer 304
-        {"source": "/(.*)", "headers": [{"key": "Cache-Control", "value": "public, max-age=0, must-revalidate"}]},
+        # page, scripts, styles: revalidate on every visit (unchanged files answer 304)
+        {"source": "/((?!data/).*)", "headers": _REVALIDATE},
+        # data files are requested as <file>?v=<content hash>, so they can be cached for a year
+        {"source": "/data/((?!meta\\.json|alerts_history\\.csv).*)",
+         "headers": [{"key": "Cache-Control", "value": "public, max-age=31536000, immutable"}]},
+        # ...except the two files that say what's current
+        {"source": "/data/(meta\\.json|alerts_history\\.csv)", "headers": _REVALIDATE},
     ],
 }
 
@@ -117,6 +133,18 @@ def _write_gz_json(obj, path: Path) -> None:
 def _nullable_ints(values: pd.Series, scale: float = 1.0) -> list:
     numbers = pd.to_numeric(values, errors="coerce") * scale
     return [None if pd.isna(v) else int(round(v)) for v in numbers]
+
+
+def _content_hash(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]
+
+
+def _latest_detection_utc(rows: pd.DataFrame) -> str:
+    """ISO UTC time of the newest detection (acq_date + acq_time HHMM)."""
+    hhmm = pd.to_numeric(rows["acq_time"], errors="coerce").fillna(0).astype(int)
+    stamps = (pd.to_datetime(rows["acq_date"].astype(str).str[:10])
+              + pd.to_timedelta(hhmm // 100, unit="h") + pd.to_timedelta(hhmm % 100, unit="m"))
+    return stamps.max().strftime("%Y-%m-%dT%H:%MZ")
 
 
 def _write_gz_bytes(data: bytes, path: Path) -> None:
@@ -208,10 +236,6 @@ def export(
 
     # --- points + meta + classes ---
     shutil.copy2(Path(points_path).with_name(Path(points_path).name + ".gz"), data_dir / "points.bin.gz")
-    public_meta = {k: v for k, v in meta.items() if k != "sources"}
-    public_meta["exported_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    public_meta["detail_shard_rows"] = DETAIL_SHARD_ROWS
-    (data_dir / "meta.json").write_text(json.dumps(public_meta, indent=1))
     (data_dir / "classes.json").write_text(json.dumps(
         {"classes": list(CLASSES), "colors": CLASS_COLORS, "colors_dark": CLASS_COLORS_DARK,
          "display": CLASS_DISPLAY_NAMES}, indent=1, ensure_ascii=False
@@ -279,6 +303,17 @@ def export(
         "shard_rows": DETAIL_SHARD_ROWS, "shards": shards, "base_date": meta["base_date"],
         "scales": {"lat": 1e5, "lon": 1e5, "frp": 100}, "dicts": dicts,
     }))
+
+    # --- meta.json last: it names the current version of every other data file ---
+    public_meta = {k: v for k, v in meta.items() if k != "sources"}
+    public_meta["exported_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    public_meta["data_through_utc"] = _latest_detection_utc(rows)
+    public_meta["detail_shard_rows"] = DETAIL_SHARD_ROWS
+    public_meta["files"] = {
+        path.relative_to(data_dir).as_posix(): _content_hash(path)
+        for path in sorted(data_dir.rglob("*")) if path.is_file() and path.name != "meta.json"
+    }
+    (data_dir / "meta.json").write_text(json.dumps(public_meta, indent=1))
 
     size = sum(p.stat().st_size for p in dist.rglob("*") if p.is_file() and ".vercel" not in p.parts)
     files = sum(1 for p in dist.rglob("*") if p.is_file() and ".vercel" not in p.parts)

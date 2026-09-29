@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -52,7 +54,7 @@ from backend.config import (
     NATIONAL_WORLDCOVER_DIR,
     RECURRENCE_LOOKBACK_DAYS,
 )
-from backend.ingestion.firms_client import INDIA_BBOX, NRT_SATELLITE_SOURCES, fetch_firms_multi
+from backend.ingestion.firms_client import INDIA_BBOX, NRT_SATELLITE_SOURCES, _env, fetch_firms_multi
 from training.alerts import (
     ALERT_TYPES,
     build_alerts,
@@ -379,8 +381,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    args = _parse_args()
+def _main(args: argparse.Namespace) -> None:
     today = datetime.now(timezone.utc).date()
     end = args.end or today
     start = args.start or end - timedelta(days=args.days - 1)
@@ -395,3 +396,23 @@ if __name__ == "__main__":
                 start, end, lookback_days=args.lookback_days or None, repack_map=not args.no_map
             )
             print(summary.report())
+
+
+def _redacted_traceback(error: BaseException, secrets: list[str]) -> str:
+    """The traceback, with every secret replaced by ***: FIRMS puts the map key in the
+    request URL, and requests/urllib3 errors quote that URL."""
+    text = "".join(traceback.format_exception(error))
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
+if __name__ == "__main__":
+    try:
+        _main(_parse_args())
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as error:  # log it -- without the key -- instead of Python's raw traceback
+        print(_redacted_traceback(error, [_env("FIRMS_MAP_KEY")]), file=sys.stderr, end="")
+        raise SystemExit(1)
