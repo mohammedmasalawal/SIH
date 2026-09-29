@@ -272,6 +272,8 @@ Nationally (723,223 `wildfire` detections, after the class-100 fix):
 
 The national shrubland share is small, but it's concentrated: Andhra Pradesh (23,384) and Karnataka (11,766) hold 67% of all shrubland-based wildfire labels, and shrubland underpins 38.1% and 51.7% of those states' wildfire labels respectively (Gujarat 25.6%, Rajasthan 22.5%, Tamil Nadu 19.2%). If the Jamnagar pattern holds in those states, a large fraction of their `wildfire` labels may actually be crop-residue burning. **Grassland (class 30, 18.6% of national wildfire) is untested** — it may carry the same fallow-cropland confusion in semi-arid areas.
 
+**Tested, not adopted (29 Sep 2026):** a `cropland_share_1km`-based fix (a shrubland/grassland detection surrounded mostly by mapped cropland would count as `agricultural burning`) was prototyped and would have moved 10,866 of 723,223 `wildfire` detections nationally, but was never validated — an automatic NDVI seasonal-pattern reference, tried as a faster substitute for a hand-verified gold sample, scored only 68.2% agreement (15/22) against verified labels, below the 80% bar set in advance. Not merged; see branch `experiment/cropland-share-fix`.
+
 **Future work:** regional gold samples of shrubland- and grassland-based `wildfire` detections in Andhra Pradesh, Karnataka, and Rajasthan, before any change to how classes 20/30 are treated. The Jamnagar result is one semi-arid region and hasn't been validated outside Gujarat.
 
 ### `is_anomalous`
