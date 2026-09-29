@@ -25,7 +25,7 @@ from __future__ import annotations
 import itertools
 import math
 
-from training.industrial_subtype import ALL_SUBTYPES, SUBTYPE_COLORS
+from training.industrial_subtype import ALL_SUBTYPES, NOT_IDENTIFIED, NOT_IDENTIFIED_ALPHA, SUBTYPE_COLORS
 
 SURFACE = "#0e0e0e"  # CARTO dark-matter land colour
 BAND = (0.48, 0.67)
@@ -116,12 +116,39 @@ def subtype_palette() -> list[str]:
     return [SUBTYPE_COLORS[name] for name in ALL_SUBTYPES]
 
 
+LAYER_OPACITY = 0.85  # buildLayer's opacity in frontend/static/js/dashboard.js
+
+
+def blend(colour: str, alpha: float, surface: str = SURFACE) -> str:
+    """`colour` at `alpha` over `surface` (sRGB blend, as the map does)."""
+    fg = [int(colour.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    bg = [int(surface.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "#" + "".join("%02x" % round(alpha * f + (1 - alpha) * b) for f, b in zip(fg, bg))
+
+
+def rendered_palette() -> list[str]:
+    """The colours as actually drawn in Industrial type mode: every point at the layer's opacity, and
+    "type not identified" fainter still (NOT_IDENTIFIED_ALPHA), so it reads as background."""
+    return [
+        blend(SUBTYPE_COLORS[name], LAYER_OPACITY * (NOT_IDENTIFIED_ALPHA / 255 if name == NOT_IDENTIFIED else 1))
+        for name in ALL_SUBTYPES
+    ]
+
+
+def _print_pairs(palette: list[str]) -> None:
+    for p in weak_pairs(palette):
+        print(f"  {ALL_SUBTYPES[p['i']]:<32} - {ALL_SUBTYPES[p['j']]:<32} normal {p['normal']:5.1f}  "
+              f"protan {p['protan']:5.1f}  deutan {p['deutan']:5.1f}  tritan {p['tritan']:5.1f}{'  (adjacent)' if p['adjacent'] else ''}")
+
+
 if __name__ == "__main__":
     palette = subtype_palette()
     report = check(palette, chromatic=len(palette) - 1)
     for key, value in report.items():
         print(f"{key:>22}: {value if isinstance(value, list) else round(value, 1)}")
-    print("\npairs under normal-vision 15 or protan/deutan 8:")
-    for p in weak_pairs(palette):
-        print(f"  {ALL_SUBTYPES[p['i']]:<32} - {ALL_SUBTYPES[p['j']]:<32} normal {p['normal']:5.1f}  "
-              f"protan {p['protan']:5.1f}  deutan {p['deutan']:5.1f}  tritan {p['tritan']:5.1f}{'  (adjacent)' if p['adjacent'] else ''}")
+    print("\npairs under normal-vision 15 or protan/deutan 8 (palette colours):")
+    _print_pairs(palette)
+    drawn = rendered_palette()
+    print(f"\nAs drawn (layer opacity {LAYER_OPACITY}; 'not identified' fainter still): {drawn}")
+    print("pairs under normal-vision 15 or protan/deutan 8 (as drawn):")
+    _print_pairs(drawn)

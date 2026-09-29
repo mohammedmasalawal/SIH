@@ -339,7 +339,11 @@ _PAGE_PROBE = """(async () => {
   for (let i = 0; i < d.N; i += Math.max(1, Math.floor(d.N / 600))) {
     const {cls, sub} = d.pointInfo(i);
     const classWant = [...hex(info.colors_dark[d.meta.classes[cls]]), 255];
-    const typeWant = cls === ind && sub > 0 ? [...hex(info.subtypes[sub - 1].color), 255] : [...hex(info.subtype_dim.color), info.subtype_dim.alpha];
+    const notIdentified = sub === info.subtype_not_identified, ni = info.subtype_style.not_identified;
+    const typeWant = cls === ind && sub > 0 ? [...hex(info.subtypes[sub - 1].color), notIdentified ? ni.alpha : 255] : [...hex(info.subtype_dim.color), info.subtype_dim.alpha];
+    const radiusWant = cls === ind && notIdentified ? Math.fround(ni.radius_scale) : 1;
+    if (d.radiusFor(i, 'class') !== 1) colourErrors.push('class mode point ' + i + ': radius ' + d.radiusFor(i, 'class') + ' != 1');
+    if (d.radiusFor(i, 'type') !== radiusWant) colourErrors.push('type mode point ' + i + ': radius ' + d.radiusFor(i, 'type') + ' != ' + radiusWant);
     if (!same(d.fillColor(i, 'class'), classWant)) colourErrors.push('class mode point ' + i + ': ' + d.fillColor(i, 'class') + ' != ' + classWant);
     if (!same(d.fillColor(i, 'type'), typeWant)) colourErrors.push('type mode point ' + i + ': ' + d.fillColor(i, 'type') + ' != ' + typeWant);
     if (colourErrors.length > 5) break;

@@ -86,6 +86,9 @@ SUBTYPE_COLORS = {
 # Every non-industrial point in that mode: a dim neutral at low opacity (RGBA alpha 0-255).
 DIM_NEUTRAL = "#4b535d"
 DIM_ALPHA = 22
+# "Industrial, type not identified" is background in that mode too: drawn smaller and fainter than typed points.
+NOT_IDENTIFIED_ALPHA = 110       # of 255
+NOT_IDENTIFIED_RADIUS_SCALE = 0.65
 
 GEM_TYPE_TO_SUBTYPE = {
     "oil_gas_field": "Refinery / oil & gas",

@@ -272,18 +272,27 @@
   const SUB_COLOR = Object.fromEntries(SUBTYPES.map((t) => [t.code, t.color])); // "Colour by: Industrial type" palette
   const DIM = { rgba: [...hexToRgba(classesInfo.subtype_dim.color).slice(0, 3), classesInfo.subtype_dim.alpha] };
   // Point fill for point i in a colour mode. Class mode is the palette built above, untouched.
+  const NI_STYLE = classesInfo.subtype_style.not_identified; // background: fainter and smaller than typed points
   let typeData = null;
   function pointDataFor(mode) {
     if (mode !== "type") return pointData;
     if (!typeData) {
       const fills = new Uint8Array(N * 4);
+      const radii = new Float32Array(N).fill(1);
       const bySub = Object.fromEntries(SUBTYPES.map((t) => [t.code, hexToRgba(t.color)]));
-      for (let i = 0; i < N; i++) fills.set(bySub[rowSubtypes[rowIds[i]]] ?? DIM.rgba, i * 4);
-      typeData = { length: N, attributes: { ...pointData.attributes, getFillColor: { value: fills, size: 4, normalized: true } } };
+      bySub[SUB_NOT_IDENTIFIED] = [...bySub[SUB_NOT_IDENTIFIED].slice(0, 3), NI_STYLE.alpha];
+      for (let i = 0; i < N; i++) {
+        const code = rowSubtypes[rowIds[i]];
+        fills.set(bySub[code] ?? DIM.rgba, i * 4);
+        if (code === SUB_NOT_IDENTIFIED) radii[i] = NI_STYLE.radius_scale;
+      }
+      typeData = { length: N, attributes: { ...pointData.attributes,
+        getFillColor: { value: fills, size: 4, normalized: true }, getRadius: { value: radii, size: 1 } } };
     }
     return typeData;
   }
   const fillColor = (i, mode) => [...pointDataFor(mode).attributes.getFillColor.value.slice(i * 4, i * 4 + 4)];
+  const radiusFor = (i, mode) => (mode === "type" ? Math.fround(pointDataFor(mode).attributes.getRadius.value[i]) : 1);
   const INDUSTRIAL = CLASSES.indexOf("industrial");
 
   // --- dates and months ---------------------------------------------------------------------
@@ -397,7 +406,7 @@
       data: pointDataFor(state.colorMode),
       beforeId: firstSymbolId,
       radiusUnits: "pixels",
-      getRadius: 1,
+      ...(state.colorMode === "type" ? {} : { getRadius: 1 }), // type mode reads a per-point radius attribute
       radiusScale,
       stroked: false,
       opacity: 0.85,
@@ -963,5 +972,5 @@
       if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
     });
   }
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, setSubtypeActive, setColorMode, fillColor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, setSubtypeActive, setColorMode, fillColor, radiusFor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
 })();

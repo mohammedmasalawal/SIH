@@ -221,3 +221,22 @@ def test_subtype_palette_passes_the_validator_checks_on_adjacent_pairs_and_the_w
         ("Thermal power plant", "Chemical / petrochemical"), ("Mine / coal-seam fire", NOT_IDENTIFIED),
         ("Steel", "Chemical / petrochemical"), ("Cement", NOT_IDENTIFIED),
     }
+
+
+def test_not_identified_is_drawn_as_background():
+    """'Type not identified' is fainter and smaller than typed points, and the colours as drawn (layer opacity,
+    plus the fade) leave the documented weak pairs -- fading resolves its pairs with refinery, mine and cement
+    but makes steel and chemical the ones it can no longer be told from by colour alone."""
+    from training.colour_check import oklch, rendered_palette, weak_pairs
+    from training.industrial_subtype import NOT_IDENTIFIED_ALPHA, NOT_IDENTIFIED_RADIUS_SCALE
+
+    assert NOT_IDENTIFIED_ALPHA < 255 and NOT_IDENTIFIED_RADIUS_SCALE < 1
+    drawn = rendered_palette()
+    assert oklch(drawn[-1])[0] < min(oklch(c)[0] for c in drawn[:-1])  # darker than every typed colour
+    weak = {(ALL_SUBTYPES[p["i"]], ALL_SUBTYPES[p["j"]]) for p in weak_pairs(drawn)}
+    assert weak == {
+        ("Refinery / oil & gas", "Mine / coal-seam fire"), ("Thermal power plant", "Mine / coal-seam fire"),
+        ("Thermal power plant", "Steel"), ("Thermal power plant", "Chemical / petrochemical"),
+        ("Mine / coal-seam fire", "Chemical / petrochemical"), ("Steel", "Chemical / petrochemical"),
+        ("Steel", NOT_IDENTIFIED), ("Chemical / petrochemical", NOT_IDENTIFIED),
+    }

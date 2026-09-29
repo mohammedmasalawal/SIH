@@ -83,6 +83,8 @@ from training.industrial_subtype import (
     ALL_SUBTYPES,
     DIM_ALPHA,
     DIM_NEUTRAL,
+    NOT_IDENTIFIED_ALPHA,
+    NOT_IDENTIFIED_RADIUS_SCALE,
     SUBTYPE_COLORS,
     NOT_APPLICABLE_CODE,
     NOT_IDENTIFIED,
@@ -257,6 +259,7 @@ def export(
          "display": CLASS_DISPLAY_NAMES,
          "subtypes": [{"code": SUBTYPE_CODE[name], "name": name, "color": SUBTYPE_COLORS[name]} for name in ALL_SUBTYPES],
          "subtype_dim": {"color": DIM_NEUTRAL, "alpha": DIM_ALPHA},
+         "subtype_style": {"not_identified": {"alpha": NOT_IDENTIFIED_ALPHA, "radius_scale": NOT_IDENTIFIED_RADIUS_SCALE}},
          "subtype_not_identified": SUBTYPE_CODE[NOT_IDENTIFIED]}, indent=1, ensure_ascii=False
     ), encoding="utf-8")
 
