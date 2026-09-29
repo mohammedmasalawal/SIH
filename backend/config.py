@@ -26,6 +26,22 @@ NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M = 2_000
 # substring of "100", moss/lichen, which would otherwise read as tree cover).
 CROPLAND_LANDCOVER_CODES = (40,)  # cropland
 NATURAL_LANDCOVER_CODES = (10, 20, 30)  # tree cover, shrubland, grassland
+# Experimental, OFF BY DEFAULT: shrubland/grassland gold-set review around Jamnagar
+# found the wildfire rule weak there -- fields WorldCover reads as shrubland, not
+# cropland, in semi-arid Saurashtra (see README "Shrubland-based wildfire labels").
+# cropland_share_1km (training.worldcover_index.WorldCoverTileIndex
+# .class_share_in_buffer_batch, target_class=CROPLAND_LANDCOVER_CODES[0]) is the
+# fraction of CROPLAND_SHARE_RADIUS_M-metre-buffer WorldCover pixels that are
+# cropland; a shrubland/grassland detection whose surroundings are mostly cropland
+# is treated as cropland for classification when this switch is on. Tree cover (10)
+# is never affected. Not wired into build_labels.py's routine pipeline -- turning
+# this on requires computing cropland_share_1km first (it is not a CONTRACT_COLUMNS
+# field) and re-running the targeted recompute. See README for the validation this
+# is pending before being turned on.
+CROPLAND_SHARE_FIX_ENABLED = False
+CROPLAND_SHARE_SWITCH_CLASSES = (20, 30)  # shrubland, grassland -- never tree cover
+CROPLAND_SHARE_RADIUS_M = 1_000
+CROPLAND_SHARE_THRESHOLD = 0.5
 # Coal-mine path (is_industrial): GEM (boundary-preferred, point+area-scaled fallback)
 # is checked first and trusted at a generous radius -- mining leases are large, and
 # seam fires outlive active mining, so GEM_COAL_STATUSES_EXCLUDED below keeps closed/

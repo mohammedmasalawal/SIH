@@ -155,3 +155,44 @@ def test_majority_class_in_buffer_batch_opens_each_tile_at_most_once(two_fine_ti
 
     assert len(open_calls) <= 2
     assert len(set(open_calls)) == len(open_calls)  # each tile opened once, not reopened per point
+
+
+@pytest.fixture
+def split_class_tile_dir(tmp_path: Path) -> Path:
+    """One fine-resolution tile, class 20 (shrubland) in the west half and class 40
+    (cropland) in the east half, split at lon 69.075 -- for testing fractional share
+    within a buffer that straddles a class boundary."""
+    tile_dir = tmp_path / "split_tile"
+    tile_dir.mkdir()
+    pixel = 0.0005  # ~55m/pixel
+    size = 300      # 300 * 55m = ~16.5km across -- a 1km buffer stays well clear of the tile edge
+    transform = from_origin(69.0, 21.0 + size * pixel, pixel, pixel)
+    data = np.full((size, size), 20, dtype="uint8")
+    data[:, size // 2:] = 40  # east half is cropland
+    with rasterio.open(
+        tile_dir / "ESA_WorldCover_10m_2021_v200_N21E069_Map.tif", "w", driver="GTiff",
+        height=size, width=size, count=1, dtype="uint8", crs="EPSG:4326", transform=transform, nodata=0,
+    ) as dst:
+        dst.write(data, 1)
+    return tile_dir
+
+
+def test_class_share_in_buffer_batch_reports_the_fraction_within_the_buffer(split_class_tile_dir: Path):
+    index = WorldCoverTileIndex(split_class_tile_dir)
+    # boundary sits at lon 69.075 (column 150); a point there straddles both classes
+    on_boundary = pd.Series([69.075], index=["a"])
+    lat = pd.Series([21.075], index=["a"])
+    share = index.class_share_in_buffer_batch(on_boundary, lat, target_class=40, buffer_m=1000)
+    assert share.loc["a"] == pytest.approx(0.5, abs=0.1)
+
+    # well inside the cropland half -> ~all cropland; well inside shrubland -> ~none
+    deep_crop = index.class_share_in_buffer_batch(pd.Series([69.12]), pd.Series([21.075]), target_class=40, buffer_m=500)
+    deep_shrub = index.class_share_in_buffer_batch(pd.Series([69.03]), pd.Series([21.075]), target_class=40, buffer_m=500)
+    assert deep_crop.iloc[0] == pytest.approx(1.0, abs=0.01)
+    assert deep_shrub.iloc[0] == pytest.approx(0.0, abs=0.01)
+
+
+def test_class_share_in_buffer_batch_nan_outside_any_tile(two_tile_dir: Path):
+    index = WorldCoverTileIndex(two_tile_dir)
+    result = index.class_share_in_buffer_batch(pd.Series([0.0]), pd.Series([0.0]), target_class=40)
+    assert result.isna().all()

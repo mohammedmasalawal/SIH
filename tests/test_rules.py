@@ -72,6 +72,45 @@ def test_non_numeric_landcover_matches_neither(landcover):
     assert is_agricultural_burning(row) is False
 
 
+def test_cropland_share_fix_off_by_default_leaves_shrubland_as_wildfire():
+    """CROPLAND_SHARE_FIX_ENABLED defaults to False -- cropland_share_1km present or
+    not, a shrubland/grassland detection is unaffected until the switch is flipped."""
+    row = pd.Series({"landcover_class": "20", "dist_to_industrial_m": 5_000, "cropland_share_1km": 0.9})
+    assert is_wildfire(row) is True and is_agricultural_burning(row) is False
+
+
+def test_cropland_share_fix_reclassifies_shrubland_and_grassland_above_threshold(monkeypatch):
+    import backend.classification.rules as rules
+
+    monkeypatch.setattr(rules, "CROPLAND_SHARE_FIX_ENABLED", True)
+    for landcover in ("20", "30"):
+        surrounded_by_cropland = pd.Series(
+            {"landcover_class": landcover, "dist_to_industrial_m": 5_000, "cropland_share_1km": 0.51}
+        )
+        assert rules.is_agricultural_burning(surrounded_by_cropland) is True
+        assert rules.is_wildfire(surrounded_by_cropland) is False
+
+
+def test_cropland_share_fix_never_touches_tree_cover(monkeypatch):
+    """Tree cover (10) is excluded from CROPLAND_SHARE_SWITCH_CLASSES -- a forest
+    fire stays wildfire even at 100% surrounding cropland share."""
+    import backend.classification.rules as rules
+
+    monkeypatch.setattr(rules, "CROPLAND_SHARE_FIX_ENABLED", True)
+    row = pd.Series({"landcover_class": "10", "dist_to_industrial_m": 5_000, "cropland_share_1km": 1.0})
+    assert rules.is_wildfire(row) is True and rules.is_agricultural_burning(row) is False
+
+
+def test_cropland_share_fix_respects_the_threshold_and_missing_share(monkeypatch):
+    import backend.classification.rules as rules
+
+    monkeypatch.setattr(rules, "CROPLAND_SHARE_FIX_ENABLED", True)
+    at_threshold = pd.Series({"landcover_class": "20", "dist_to_industrial_m": 5_000, "cropland_share_1km": 0.5})
+    assert rules.is_wildfire(at_threshold) is True  # > threshold required, not >=
+    no_share_computed = pd.Series({"landcover_class": "20", "dist_to_industrial_m": 5_000})
+    assert rules.is_wildfire(no_share_computed) is True  # missing cropland_share_1km -> unaffected
+
+
 def test_double_match_resolves_to_unknown():
     """industrial (recurrence==1 + near_heat_facility_500m) and agricultural burning
     (cropland landcover + null dist_to_industrial_m) can both fire on the same row --

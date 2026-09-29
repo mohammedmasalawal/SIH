@@ -162,3 +162,41 @@ class WorldCoverTileIndex:
                     counts = np.bincount(values.astype(np.int64))
                     result.loc[idx] = int(np.argmax(counts))
         return result
+
+    def class_share_in_buffer_batch(
+        self, longitudes: pd.Series, latitudes: pd.Series, target_class: int, buffer_m: float = 1000
+    ) -> pd.Series:
+        """Fraction (0-1) of valid WorldCover pixels within buffer_m of each point that
+        are target_class -- e.g. how much of a detection's 1km surroundings is mapped
+        cropland (class 40), regardless of what class the point itself sits on. Same
+        grouped-by-tile, windowed-read approach as majority_class_in_buffer_batch (see
+        its docstring for why per-point dataset opens leak GDAL memory at scale). NaN
+        where the point falls outside every indexed tile or its buffer has no valid
+        (non-nodata) pixels at all.
+        """
+        points = gpd.GeoDataFrame(
+            {"_lon": longitudes.to_numpy(), "_lat": latitudes.to_numpy()},
+            geometry=gpd.points_from_xy(longitudes, latitudes),
+            index=longitudes.index,
+            crs="EPSG:4326",
+        )
+        joined = gpd.sjoin(points, self.index[["geometry", "path"]], how="left", predicate="within")
+        result = pd.Series(np.nan, index=longitudes.index, dtype="float64")
+
+        for path, group in joined.dropna(subset=["path"]).groupby("path"):
+            with rasterio.open(path) as raster:
+                nodata = raster.nodata
+                points_3857 = gpd.GeoSeries(
+                    gpd.points_from_xy(group["_lon"], group["_lat"]), crs="EPSG:4326"
+                ).to_crs("EPSG:3857")
+                buffered = points_3857.buffer(buffer_m).to_crs(raster.crs)
+                for idx, buffer_geom in zip(group.index, buffered):
+                    window = from_bounds(*buffer_geom.bounds, transform=raster.transform)
+                    data = raster.read(1, window=window, boundless=True, fill_value=nodata or 0)
+                    values = data[data != 0]
+                    if nodata is not None:
+                        values = values[values != nodata]
+                    if values.size == 0:
+                        continue
+                    result.loc[idx] = float(np.count_nonzero(values == target_class)) / values.size
+        return result

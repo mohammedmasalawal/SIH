@@ -10,6 +10,9 @@ from backend.config import (
     COAL_MINE_OSM_MAX_DIST_M,
     COAL_MINE_OSM_MIN_RECURRENCE,
     CROPLAND_LANDCOVER_CODES,
+    CROPLAND_SHARE_FIX_ENABLED,
+    CROPLAND_SHARE_SWITCH_CLASSES,
+    CROPLAND_SHARE_THRESHOLD,
     GAS_FLARE_MAX_DIST_M,
     GAS_FLARE_MIN_RECURRENCE,
     INDUSTRIAL_HEAT_MAX_DIST_M,
@@ -168,18 +171,33 @@ def _landcover_code(row: pd.Series) -> int | None:
     return int(code) if code.is_integer() else None
 
 
+def _cropland_by_context(row: pd.Series) -> bool:
+    """CROPLAND_SHARE_FIX_ENABLED gate (off by default, not yet validated -- see
+    README "Shrubland-based wildfire labels" / cropland_share_1km): a shrubland or
+    grassland detection surrounded mostly by mapped cropland (cropland_share_1km,
+    the fraction of CROPLAND_SHARE_RADIUS_M-metre WorldCover pixels that are
+    cropland, over CROPLAND_SHARE_THRESHOLD) is treated as cropland for
+    classification instead of its own WorldCover pixel's class. Tree cover (10) is
+    never affected -- only CROPLAND_SHARE_SWITCH_CLASSES. Requires
+    cropland_share_1km on the row; absent (None/NaN), as on every row while this is
+    off, this is always False.
+    """
+    if not CROPLAND_SHARE_FIX_ENABLED:
+        return False
+    share = _number(row, "cropland_share_1km")
+    return _landcover_code(row) in CROPLAND_SHARE_SWITCH_CLASSES and share is not None and share > CROPLAND_SHARE_THRESHOLD
+
+
 def is_agricultural_burning(row: pd.Series) -> bool:
     distance = _number(row, "dist_to_industrial_m")
-    return _landcover_code(row) in CROPLAND_LANDCOVER_CODES and (
-        distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M
-    )
+    cropland = _landcover_code(row) in CROPLAND_LANDCOVER_CODES or _cropland_by_context(row)
+    return cropland and (distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M)
 
 
 def is_wildfire(row: pd.Series) -> bool:
     distance = _number(row, "dist_to_industrial_m")
-    return _landcover_code(row) in NATURAL_LANDCOVER_CODES and (
-        distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M
-    )
+    natural = _landcover_code(row) in NATURAL_LANDCOVER_CODES and not _cropland_by_context(row)
+    return natural and (distance is None or distance > NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M)
 
 
 def _matched_labels(row: pd.Series) -> list[str]:
