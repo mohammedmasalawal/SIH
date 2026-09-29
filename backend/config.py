@@ -192,6 +192,11 @@ RECURRENCE_LOOKBACK_DAYS = 90
 # this many cells (1 -> a 3x3 block, ~1.1 km across), so VIIRS geolocation jitter between
 # passes doesn't make a long-active spot look new (or a persistent one look intermittent).
 NEIGHBOURHOOD_RADIUS_CELLS = 1
+# industrial_anomaly: is_anomalous (z-score) alone flagged small absolute FRP bumps at
+# already-hot sites as "anomalous" -- e.g. 2.4 MW vs a 2.2 MW normal. Requiring the day's
+# FRP to also be at least this many times the site's normal keeps the z-score test but
+# drops alerts that aren't a meaningfully bigger fire.
+INDUSTRIAL_ANOMALY_MIN_FRP_RATIO = 2.0
 # new_activity_at_critical_site: a detection (any label) close to a critical facility,
 # where nothing in its ~1 km neighbourhood was active earlier in the look-back.
 CRITICAL_SITE_MAX_ACTIVE_DAYS = 1  # neighbourhood active days in the look-back, including the detection's own

@@ -12,6 +12,7 @@ from training.alerts import (
     ALERT_COLUMNS,
     complete_days,
     drop_known,
+    industrial_anomaly_alerts,
     new_activity_at_critical_site_alerts,
     large_fire_event_alerts,
     load_infrastructure_sites,
@@ -54,6 +55,29 @@ def test_new_activity_at_critical_site_needs_a_quiet_neighbourhood(sites):
     assert alert["facility_name"] == "Test CCGT" and alert["facility_type"] == "power plant (oil/gas) · GEM"
     assert alert["facility_distance_m"] == pytest.approx(1800, rel=0.03)  # EPSG:7755 scale error at 25N ~2%
     assert list(alerts.columns) == ALERT_COLUMNS
+
+
+def test_industrial_anomaly_requires_frp_at_least_double_the_normal():
+    """is_anomalous (z-score) alone would flag both rows; the 2x-normal gate keeps only
+    the one whose FRP is a meaningfully bigger fire, not just a statistical blip."""
+    common = dict(label="industrial", is_anomalous=True, baseline_frp=2.0, prior_active_days=6,
+                  osm_industrial_tag="yes", dist_to_industrial_m=50.0,
+                  dist_to_heat_industry_m=50_000.0, dist_to_flare_capable_m=50_000.0)
+    weak = _det(22.30, 69.85, "2026-09-10", time="0100", frp=3.9, **common)    # 1.95x normal -- below the gate
+    strong = _det(22.30, 69.85, "2026-09-10", time="0200", frp=4.0, **common)  # exactly 2x normal -- passes
+    alerts = industrial_anomaly_alerts(pd.DataFrame([weak, strong]))
+    assert len(alerts) == 1 and alerts.iloc[0]["acq_time"] == "0200"
+    assert alerts.iloc[0]["frp_vs_normal"] == pytest.approx(2.0)
+
+
+def test_industrial_anomaly_facility_falls_back_to_state_not_raw_osm_tag():
+    """No facility_name exists for this alert type; when _site_evidence's only match is
+    the raw OSM tag (industrial=yes), show the state instead of that tag."""
+    row = _det(22.30, 69.85, "2026-09-10", label="industrial", is_anomalous=True, baseline_frp=2.0,
+               prior_active_days=6, frp=10.0, osm_industrial_tag="yes", dist_to_industrial_m=50.0,
+               dist_to_heat_industry_m=50_000.0, dist_to_flare_capable_m=50_000.0)
+    alert = industrial_anomaly_alerts(pd.DataFrame([row])).iloc[0]
+    assert alert["facility_type"] == "Industrial site · Gujarat"
 
 
 def test_infrastructure_sites_exclude_renewables(tmp_path):

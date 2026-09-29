@@ -2,7 +2,8 @@
 change a detection's label. Thresholds live in backend/config.py and are untested
 starting values (see README "Live alerts").
 
-    industrial_anomaly        is_anomalous detection labelled industrial / gas flare
+    industrial_anomaly        is_anomalous detection labelled industrial / gas flare, whose FRP
+                              is also at least INDUSTRIAL_ANOMALY_MIN_FRP_RATIO times the site's normal
     new_activity_at_critical_site  detection (any label) within CRITICAL_SITE_MAX_DIST_M of a critical
                               facility, with no earlier activity in its ~1 km neighbourhood
     new_unmapped_source       cell with no known facility nearby that started burning repeatedly
@@ -25,6 +26,7 @@ from sklearn.cluster import DBSCAN
 
 from backend.config import (
     GAS_FLARE_MAX_DIST_M,
+    INDUSTRIAL_ANOMALY_MIN_FRP_RATIO,
     INDUSTRIAL_HEAT_MAX_DIST_M,
     CRITICAL_SITE_GEM_FACILITY_TYPES,
     CRITICAL_SITE_LOOKBACK_DAYS,
@@ -44,6 +46,7 @@ from backend.config import (
     UNMAPPED_NO_FACILITY_WITHIN_M,
     UNMAPPED_WINDOW_DAYS,
 )
+from training.report_by_state import assign_state
 from training.spatial_features import grid_keys
 
 ALERT_TYPES = ("industrial_anomaly", "new_activity_at_critical_site", "new_unmapped_source", "large_fire_event")
@@ -120,16 +123,31 @@ def _site_evidence(row: pd.Series) -> tuple[str, float | None]:
 
 
 def industrial_anomaly_alerts(batch: pd.DataFrame) -> pd.DataFrame:
-    """Anomalous detections at industrial / gas-flare sites (needs batch baseline_frp,
-    prior_active_days from anomaly_baselines)."""
+    """Anomalous detections at industrial / gas-flare sites, whose FRP is also at least
+    INDUSTRIAL_ANOMALY_MIN_FRP_RATIO times the site's normal -- is_anomalous's z-score
+    test alone let through small absolute bumps at sites that already run hot (e.g. 2.4
+    vs a 2.2 MW normal); this keeps the z-score gate but drops those. Compared as
+    frp >= ratio * baseline_frp rather than a frp/baseline_frp division, so a baseline of
+    exactly 0 (every prior day's FRP was 0) doesn't produce an undefined ratio. Needs
+    batch baseline_frp, prior_active_days from anomaly_baselines."""
     if batch.empty:
         return _empty()
-    hits = batch[batch["is_anomalous"].astype(bool) & batch["label"].isin(ANOMALY_LABELS)].copy()
+    strong = batch["frp"] >= INDUSTRIAL_ANOMALY_MIN_FRP_RATIO * batch["baseline_frp"]
+    hits = batch[batch["is_anomalous"].astype(bool) & batch["label"].isin(ANOMALY_LABELS) & strong].copy()
     if hits.empty:
         return _empty()
     evidence = hits.apply(_site_evidence, axis=1, result_type="expand")
     hits["facility_type"] = evidence[0]
     hits["facility_distance_m"] = pd.to_numeric(evidence[1], errors="coerce").round(0)
+    # No facility name exists for this alert type (unlike new_activity_at_critical_site's
+    # GEM/OSM name lookup) -- when _site_evidence fell back to the raw OSM tag ("OSM
+    # industrial=yes"), show the state instead of exposing that tag to the viewer.
+    raw_tag = hits["facility_type"].astype(str).str.startswith("OSM industrial")
+    if raw_tag.any():
+        site_state = assign_state(hits.loc[raw_tag, ["latitude", "longitude"]]).fillna("")
+        hits.loc[raw_tag, "facility_type"] = np.where(
+            site_state != "", "Industrial site · " + site_state, "Industrial site"
+        )
     hits["site_normal_frp"] = hits["baseline_frp"].round(2)
     hits["frp_vs_normal"] = (hits["frp"] / hits["baseline_frp"]).round(2)
     hits["prior_active_days"] = hits["prior_active_days"].astype("Int64")
