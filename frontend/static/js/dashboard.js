@@ -231,6 +231,7 @@
     const sub = stats.sub, untyped = sub.code.reduce((sum, code, i) => sum + (code === classesInfo.subtype_not_identified ? sub.n[i] : 0), 0);
     const industrial = sub.n.reduce((a, b) => a + b, 0);
     $("method-subtype-share").textContent = industrial ? `${((untyped / industrial) * 100).toFixed(0)}%` : "n/a";
+    $("method-subtype-through").textContent = meta.data_through_utc ? istLabel(meta.data_through_utc) : `${meta.max_date} (UTC date)`;
   }
   $("method-range").textContent = `${meta.base_date} to ${meta.data_through_utc ? istLabel(meta.data_through_utc) : meta.max_date}`;
 
