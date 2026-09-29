@@ -412,6 +412,19 @@ body {
 /* the map library sets an inline outline:none on its canvas */
 .maplibregl-canvas:focus-visible { outline: 2px solid var(--accent) !important; outline-offset: -2px; }
 
+/* ---------- colour-by switch ---------- */
+.colour-by { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.colour-by-label { color: var(--text-muted); font-size: 11px; margin-right: 2px; white-space: nowrap; }
+.seg {
+  padding: 3px 9px; border: 1px solid var(--border-strong); border-radius: 12px;
+  background: var(--surface-2); color: var(--text-secondary);
+  font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.seg:hover { border-color: var(--accent); }
+.seg[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--text-primary); }
+.colour-note { margin: 0 0 6px; color: var(--text-muted); font-size: 11px; line-height: 1.35; max-width: 230px; }
+.colour-note[hidden] { display: none; }
+
 /* ---------- industrial sub-types ---------- */
 .subtypes { display: grid; gap: 2px; }
 .subtypes.dim { opacity: 0.45; }
@@ -424,7 +437,7 @@ body {
 .subtype-btn:hover { background: var(--surface-2); }
 .subtype-btn[aria-pressed="false"] { opacity: 0.4; }
 .subtype-line { display: flex; justify-content: space-between; gap: 8px; }
-.subtype-name { color: var(--text-primary); }
+.subtype-name { color: var(--text-primary); display: inline-flex; align-items: center; gap: 7px; }
 .subtype-btn.untyped .subtype-name { color: var(--text-secondary); font-style: italic; }
 .subtype-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .subtype-bar { display: block; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }

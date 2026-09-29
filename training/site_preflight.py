@@ -43,7 +43,16 @@ import numpy as np
 import pandas as pd
 
 from backend.classification.rules import CLASSES
-from backend.config import ALERTS_HISTORY_PATH, CLASS_DISPLAY_NAMES, MAP_POINTS_META_PATH, ROOT_DIR, SITE_DIST_DIR
+from backend.config import (
+    ALERTS_HISTORY_PATH,
+    CLASS_COLORS,
+    CLASS_COLORS_DARK,
+    CLASS_DISPLAY_NAMES,
+    MAP_POINTS_META_PATH,
+    ROOT_DIR,
+    SITE_DIST_DIR,
+)
+from training.industrial_subtype import SUBTYPE_COLORS
 from training.report_by_state import assign_state
 
 ALERT_COLUMNS = ("alert_id", "alert_type", "latitude", "longitude", "acq_date")
@@ -192,6 +201,11 @@ def check_consistency(dist: Path, expected: dict, alerts_source: Path = ALERTS_H
     same("anomalous detections", int(sum(stats["anom"])), expected["anomalous"])
     same("data through (date)", meta["max_date"], expected["max_date"])
     same("data through (latest detection, UTC)", meta.get("data_through_utc"), expected["data_through_utc"])
+    # colours: class colours are the configured palette, sub-type colours the module's
+    classes_json = json.loads((data / "classes.json").read_text(encoding="utf-8"))
+    same("class colours (classes.json)", classes_json["colors_dark"], CLASS_COLORS_DARK)
+    same("light class colours (classes.json)", classes_json["colors"], CLASS_COLORS)
+    same("sub-type colours (classes.json)", {t["name"]: t["color"] for t in classes_json["subtypes"]}, SUBTYPE_COLORS)
     # industrial sub-types: display-only, so they must line up with the class exactly
     sub = stats.get("sub")
     if sub is None:
@@ -315,6 +329,22 @@ _PAGE_PROBE = """(async () => {
   await settle(); out.state_minus = read();
   d.state.active.add(d.meta.classes.indexOf('%s')); d.setSubtypeActive(%d, false);
   await settle(); out.sub_minus = read();
+  d.setSubtypeActive(%d, true);
+  // colour modes: class mode is exactly the class palette in classes.json; industrial-type mode colours only
+  // industrial points (their sub-type colour) and dims everything else
+  const info = await (await fetch('data/classes.json')).json();
+  const hex = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
+  const colourErrors = [], ind = d.meta.classes.indexOf('industrial');
+  const same = (a, b) => a.length === b.length && a.every((v, k) => v === b[k]);
+  for (let i = 0; i < d.N; i += Math.max(1, Math.floor(d.N / 600))) {
+    const {cls, sub} = d.pointInfo(i);
+    const classWant = [...hex(info.colors_dark[d.meta.classes[cls]]), 255];
+    const typeWant = cls === ind && sub > 0 ? [...hex(info.subtypes[sub - 1].color), 255] : [...hex(info.subtype_dim.color), info.subtype_dim.alpha];
+    if (!same(d.fillColor(i, 'class'), classWant)) colourErrors.push('class mode point ' + i + ': ' + d.fillColor(i, 'class') + ' != ' + classWant);
+    if (!same(d.fillColor(i, 'type'), typeWant)) colourErrors.push('type mode point ' + i + ': ' + d.fillColor(i, 'type') + ' != ' + typeWant);
+    if (colourErrors.length > 5) break;
+  }
+  out.colour_errors = colourErrors; out.colour_mode_default = d.state.colorMode;
   return out;
 })()"""
 
@@ -331,6 +361,10 @@ def _compare_display(shown: dict, want: dict) -> list[str]:
             failures.append(f"page ({label}): map draws {got.get('visible')!r} points, source says {exp['visible']!r}")
         if "rings" in exp and got.get("rings") != exp["rings"]:
             failures.append(f"page ({label}): class counts {got.get('rings')} != source {exp['rings']}")
+    if shown.get("colour_mode_default") != "class":
+        failures.append(f"page: default colour mode is {shown.get('colour_mode_default')!r}, not 'class'")
+    for message in shown.get("colour_errors") or []:
+        failures.append(f"page: {message}")
     got, exp = shown.get("all") or {}, want["all"]
     for name, count in got.get("states", []):
         if exp["states"].get(name) != count:
@@ -402,7 +436,7 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S, want: dict | None = 
             send("Runtime.enable")
             send("Log.enable")
             send("Page.navigate", url=url)
-            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF, AUDIT_CLASS_OFF, AUDIT_SUBTYPE_OFF),
+            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF, AUDIT_CLASS_OFF, AUDIT_SUBTYPE_OFF, AUDIT_SUBTYPE_OFF),
                           awaitPromise=True, returnByValue=True)
             time.sleep(1.5)
             send("Runtime.evaluate", expression="1")  # drain errors logged after the probe

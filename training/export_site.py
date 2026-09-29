@@ -81,6 +81,9 @@ from backend.ingestion.context_sources import exclude_renewable_power_plants
 from backend.ingestion.firms_client import _env
 from training.industrial_subtype import (
     ALL_SUBTYPES,
+    DIM_ALPHA,
+    DIM_NEUTRAL,
+    SUBTYPE_COLORS,
     NOT_APPLICABLE_CODE,
     NOT_IDENTIFIED,
     SUBTYPE_CODE,
@@ -252,7 +255,8 @@ def export(
     (data_dir / "classes.json").write_text(json.dumps(
         {"classes": list(CLASSES), "colors": CLASS_COLORS, "colors_dark": CLASS_COLORS_DARK,
          "display": CLASS_DISPLAY_NAMES,
-         "subtypes": [{"code": SUBTYPE_CODE[name], "name": name} for name in ALL_SUBTYPES],
+         "subtypes": [{"code": SUBTYPE_CODE[name], "name": name, "color": SUBTYPE_COLORS[name]} for name in ALL_SUBTYPES],
+         "subtype_dim": {"color": DIM_NEUTRAL, "alpha": DIM_ALPHA},
          "subtype_not_identified": SUBTYPE_CODE[NOT_IDENTIFIED]}, indent=1, ensure_ascii=False
     ), encoding="utf-8")
 

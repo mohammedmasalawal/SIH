@@ -269,6 +269,21 @@
   const filterExtension = new deck.DataFilterExtension({ filterSize: 2, categorySize: 2, countItems: true });
   const SUBTYPES = classesInfo.subtypes; // [{code, name}], codes 1..n; the last is "type not identified"
   const SUB_NOT_IDENTIFIED = classesInfo.subtype_not_identified;
+  const SUB_COLOR = Object.fromEntries(SUBTYPES.map((t) => [t.code, t.color])); // "Colour by: Industrial type" palette
+  const DIM = { rgba: [...hexToRgba(classesInfo.subtype_dim.color).slice(0, 3), classesInfo.subtype_dim.alpha] };
+  // Point fill for point i in a colour mode. Class mode is the palette built above, untouched.
+  let typeData = null;
+  function pointDataFor(mode) {
+    if (mode !== "type") return pointData;
+    if (!typeData) {
+      const fills = new Uint8Array(N * 4);
+      const bySub = Object.fromEntries(SUBTYPES.map((t) => [t.code, hexToRgba(t.color)]));
+      for (let i = 0; i < N; i++) fills.set(bySub[rowSubtypes[rowIds[i]]] ?? DIM.rgba, i * 4);
+      typeData = { length: N, attributes: { ...pointData.attributes, getFillColor: { value: fills, size: 4, normalized: true } } };
+    }
+    return typeData;
+  }
+  const fillColor = (i, mode) => [...pointDataFor(mode).attributes.getFillColor.value.slice(i * 4, i * 4 + 4)];
   const INDUSTRIAL = CLASSES.indexOf("industrial");
 
   // --- dates and months ---------------------------------------------------------------------
@@ -300,6 +315,7 @@
     allYear: params.get("all") === "1",
     active: new Set(CLASSES.map((_, i) => i)),
     subActive: new Set(SUBTYPES.map((t) => t.code)), // industrial sub-types shown
+    colorMode: params.get("colour") === "type" ? "type" : "class", // "Colour by": class (default) | industrial type
     region: requestedState >= 0 ? requestedState : null, // index into stats.states, null = all India
     visible: null,
   };
@@ -378,7 +394,7 @@
   function buildLayer() {
     return new deck.ScatterplotLayer({
       id: "detections",
-      data: pointData,
+      data: pointDataFor(state.colorMode),
       beforeId: firstSymbolId,
       radiusUnits: "pixels",
       getRadius: 1,
@@ -574,8 +590,8 @@
       const share = totals[code] / all;
       return `<button type="button" class="subtype-btn${code === SUB_NOT_IDENTIFIED ? " untyped" : ""}" data-code="${code}" aria-pressed="${on}"
         aria-label="${esc(name)}: ${fmtCount(totals[code])} industrial detections, ${(share * 100).toFixed(1)}%">
-        <span class="subtype-line"><span class="subtype-name">${esc(name)}</span><span class="subtype-count">${fmtCount(totals[code])}</span></span>
-        <span class="subtype-bar"><span style="width:${Math.max(share * 100, totals[code] ? 1.5 : 0).toFixed(1)}%"></span></span>
+        <span class="subtype-line"><span class="subtype-name"><span class="swatch" style="background:${SUB_COLOR[code]}"></span>${esc(name)}</span><span class="subtype-count">${fmtCount(totals[code])}</span></span>
+        <span class="subtype-bar"><span style="width:${Math.max(share * 100, totals[code] ? 1.5 : 0).toFixed(1)}%${state.colorMode === "type" ? `;background:${SUB_COLOR[code]}` : ""}"></span></span>
       </button>`;
     }).join("");
     const untyped = totals[SUB_NOT_IDENTIFIED] / all;
@@ -591,6 +607,19 @@
     buildDaily();
     update({ classesChanged: true });
   }
+
+  // --- colour by: class (default) or industrial type -----------------------------------------------
+  function setColorMode(mode) {
+    state.colorMode = mode === "type" ? "type" : "class";
+    $("colour-class").setAttribute("aria-pressed", String(state.colorMode === "class"));
+    $("colour-type").setAttribute("aria-pressed", String(state.colorMode === "type"));
+    $("colour-note").hidden = state.colorMode !== "type";
+    syncControls();
+    renderMap();
+    renderSubtypes();
+  }
+  $("colour-class").addEventListener("click", () => setColorMode("class"));
+  $("colour-type").addEventListener("click", () => setColorMode("type"));
 
   // --- top states ---------------------------------------------------------------------------
   const statesTip = $("states-tip");
@@ -781,6 +810,7 @@
     if (state.allYear) url.searchParams.set("all", "1"); else url.searchParams.delete("all");
     if (state.region != null) url.searchParams.set("state", stats.states[state.region]); else url.searchParams.delete("state");
     if (facilitiesToggle.checked) url.searchParams.set("facilities", "1"); else url.searchParams.delete("facilities");
+    if (state.colorMode === "type") url.searchParams.set("colour", "type"); else url.searchParams.delete("colour");
     history.replaceState(null, "", url);
   }
 
@@ -847,9 +877,10 @@
     if (d.subtype) { // industrial detections: the nearest typed facility within 1 km, or "not identified"
       const [name, source, kind] = d.subtype_facility ?? [];
       const where = d.subtype_facility
-        ? ` (${esc(name ?? `unnamed ${kind}`)}, ${fmtDistance(d.subtype_distance_m)}, ${esc(source)})`
+        ? ` (${esc(name ?? `unnamed ${String(kind).replace(/^industrial=/, "").replaceAll("_", " ")}`)}, ${fmtDistance(d.subtype_distance_m)}, ${esc(source)})`
         : " (no typed facility within 1 km)";
-      rows.splice(0, 0, [term("subtype", "Type"), `${esc(d.subtype)}${where}`]);
+      const swatch = `<span class="swatch" style="background:${SUB_COLOR[SUBTYPES.find((t) => t.name === d.subtype)?.code]}"></span> `;
+      rows.splice(0, 0, [term("subtype", "Type"), `${swatch}${esc(d.subtype)}${where}`]);
     }
     const reason = d.label_source === "rule" ? LABEL_REASONS.rule[d.label] : LABEL_REASONS[d.label_source];
     rows.unshift(["Why", `<span class="reason">${esc(reason ?? `label source: ${d.label_source ?? "n/a"}`)}</span>`]);
@@ -909,6 +940,7 @@
     state.monthIndex = months.length - 1;
     CLASSES.forEach((_, i) => state.active.add(i));
     SUBTYPES.forEach((t) => state.subActive.add(t.code));
+    state.colorMode = "class"; $("colour-class").setAttribute("aria-pressed", "true"); $("colour-type").setAttribute("aria-pressed", "false"); $("colour-note").hidden = true;
     facilitiesToggle.checked = false;
     if (facilities) $("facilities-legend").hidden = true;
     document.querySelector(".alert-item.selected")?.classList.remove("selected");
@@ -918,6 +950,7 @@
 
   if (state.region != null) selectRegion(state.region, { fly: !params.has("lat") });
   else update({ classesChanged: true });
+  if (state.colorMode === "type") setColorMode("type"); // arrived with ?colour=type
   overlayEl.hidden = true;
   if (basemapFallback) $("stale-banner").insertAdjacentHTML("afterend",
     '<div class="basemap-note" role="status">Basemap unavailable — detections shown on a plain background.</div>');
@@ -930,5 +963,5 @@
       if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
     });
   }
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, setSubtypeActive, states: stats.states };
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, setSubtypeActive, setColorMode, fillColor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
 })();

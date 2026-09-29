@@ -69,6 +69,24 @@ ALL_SUBTYPES = SUBTYPES + (NOT_IDENTIFIED,)
 SUBTYPE_CODE = {name: i + 1 for i, name in enumerate(ALL_SUBTYPES)}  # 0 = not an industrial detection
 NOT_APPLICABLE_CODE = 0
 
+# Display colours for "Colour by: Industrial type" (dark map only). Blue / cyan / violet, kept out of the
+# class palette (no yellow, green, magenta, red or the unclassified grey), with "type not identified" a
+# muted blue-grey. Found and checked with the dataviz validator on the dark-matter land colour #0e0e0e --
+# see training/colour_check.py and the README for the numbers and the pairs that cannot be separated.
+# In panel order, which is also the validator's "adjacent" order.
+SUBTYPE_COLORS = {
+    "Refinery / oil & gas": "#ac7add",          # orchid
+    "Thermal power plant": "#2261dd",           # royal blue
+    "Mine / coal-seam fire": "#9172fe",         # violet
+    "Steel": "#765092",                         # plum
+    "Cement": "#018d87",                        # teal
+    "Chemical / petrochemical": "#4b58b7",      # indigo
+    "Industrial, type not identified": "#8491b8",  # muted blue-grey
+}
+# Every non-industrial point in that mode: a dim neutral at low opacity (RGBA alpha 0-255).
+DIM_NEUTRAL = "#4b535d"
+DIM_ALPHA = 22
+
 GEM_TYPE_TO_SUBTYPE = {
     "oil_gas_field": "Refinery / oil & gas",
     "lng_terminal": "Refinery / oil & gas",

@@ -145,3 +145,79 @@ def test_codes_and_split_table():
     table = split_table(pd.DataFrame({"industrial_subtype": ["Steel", "Steel", NOT_IDENTIFIED, None]}))
     assert table.loc["Steel", "detections"] == 2 and table.loc[NOT_IDENTIFIED, "share_pct"] == pytest.approx(33.3, abs=0.1)
     assert list(table.index) == list(ALL_SUBTYPES)
+
+
+# ---- colours for "Colour by: Industrial type" ---------------------------------------------------------
+
+# Pinned: these are the class colours users see today. "Colour by: Class" must keep using exactly these.
+PINNED_CLASS_COLORS = {"industrial": "#2a78d6", "gas flare": "#e87ba4", "agricultural burning": "#eda100",
+                       "wildfire": "#008300", "unknown": "#8f8e89"}
+PINNED_CLASS_COLORS_DARK = {"industrial": "#3987e5", "gas flare": "#d55181", "agricultural burning": "#c98500",
+                            "wildfire": "#008300", "unknown": "#6b6a65"}
+
+
+def test_class_colours_are_unchanged():
+    from backend.config import CLASS_COLORS, CLASS_COLORS_DARK
+
+    assert CLASS_COLORS == PINNED_CLASS_COLORS and CLASS_COLORS_DARK == PINNED_CLASS_COLORS_DARK
+
+
+def test_export_writes_class_colours_unchanged_and_the_subtype_palette(tmp_path):
+    import gzip
+    import json
+
+    from training.export_site import export
+    from training.industrial_subtype import DIM_ALPHA, DIM_NEUTRAL, SUBTYPE_COLORS
+
+    meta_dir = tmp_path / "m"
+    meta_dir.mkdir()
+    rows = pd.DataFrame([{"latitude": 22.1, "longitude": 69.1, "acq_date": "2026-01-01", "acq_time": "0130", "satellite": "N",
+                          "frp": 3.0, "daynight": "N", "recurrence_count": 2, "landcover_class": 40, "label_source": "rule",
+                          "dist_to_industrial_m": 5000.0, "label": "industrial", "is_anomalous": False}])
+    parquet = meta_dir / "a.parquet"
+    rows.to_parquet(parquet, index=False)
+    from training.pack_map_points import pack
+
+    pack([parquet], meta_dir / "p.bin", meta_dir / "p.json")
+    alerts = tmp_path / "alerts.csv"
+    alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\n")
+    dist = tmp_path / "dist"
+    export(dist, meta_path=meta_dir / "p.json", points_path=meta_dir / "p.bin", alerts_history=alerts,
+           facilities_path=tmp_path / "n.csv", industrial_context_path=tmp_path / "n.parquet", subtype_gem_path=tmp_path / "n.csv")
+    classes = json.loads((dist / "data" / "classes.json").read_text(encoding="utf-8"))
+    assert classes["colors"] == PINNED_CLASS_COLORS and classes["colors_dark"] == PINNED_CLASS_COLORS_DARK
+    assert {t["name"]: t["color"] for t in classes["subtypes"]} == SUBTYPE_COLORS
+    assert classes["subtype_dim"] == {"color": DIM_NEUTRAL, "alpha": DIM_ALPHA}
+
+
+def test_subtype_palette_stays_out_of_the_class_palette():
+    from training.colour_check import delta_e, oklch
+    from training.industrial_subtype import SUBTYPE_COLORS
+
+    chromatic = [c for name, c in SUBTYPE_COLORS.items() if name != NOT_IDENTIFIED]
+    assert len(set(SUBTYPE_COLORS.values())) == 7 and len(chromatic) == 6
+    for colour in chromatic:  # blue / cyan / violet only: OKLCH hue 185-315 (yellow ~90, green ~145, magenta/red ~330-30)
+        assert 185 <= oklch(colour)[2] <= 315, colour
+    grey_l, grey_c, grey_h = oklch(SUBTYPE_COLORS[NOT_IDENTIFIED])
+    assert 0.02 < grey_c < 0.08 and 215 <= grey_h <= 280  # muted, and bluer than the grey "unclassified" class colour
+    for colour in SUBTYPE_COLORS.values():
+        for klass in PINNED_CLASS_COLORS_DARK.values():
+            assert delta_e(colour, klass) >= 8, (colour, klass)  # no sub-type reads as a class colour
+    assert delta_e(SUBTYPE_COLORS[NOT_IDENTIFIED], PINNED_CLASS_COLORS_DARK["unknown"]) >= 12
+
+
+def test_subtype_palette_passes_the_validator_checks_on_adjacent_pairs_and_the_weak_pairs_are_the_documented_ones():
+    from training.colour_check import check, subtype_palette, weak_pairs
+
+    palette = subtype_palette()
+    report = check(palette, chromatic=6)
+    assert report["off_band"] == [] and report["low_chroma"] == [] and report["low_contrast"] == []
+    assert report["adjacent_worst_cvd"] >= 8 and report["adjacent_worst_normal"] >= 15  # legend / panel order
+    # Six blue/cyan/violet hues + a blue-grey can't all be pairwise separated in the dark lightness band. These
+    # are the pairs that can't be; if the palette changes, this list must be reviewed (README documents it).
+    weak = {(ALL_SUBTYPES[p["i"]], ALL_SUBTYPES[p["j"]]) for p in weak_pairs(palette)}
+    assert weak == {
+        ("Refinery / oil & gas", "Mine / coal-seam fire"), ("Refinery / oil & gas", NOT_IDENTIFIED),
+        ("Thermal power plant", "Chemical / petrochemical"), ("Mine / coal-seam fire", NOT_IDENTIFIED),
+        ("Steel", "Chemical / petrochemical"), ("Cement", NOT_IDENTIFIED),
+    }
