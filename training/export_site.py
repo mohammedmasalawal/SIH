@@ -10,6 +10,9 @@ files, so it can be served by any static host (Vercel) with no backend:
     dist/data/alerts_history.csv         every alert raised by live ingestion
     dist/data/details/NNNN.json.gz       full records, DETAIL_SHARD_ROWS rows per shard
     dist/data/point_state.bin.gz         uint8 state index per row id (stats.json's state order)
+    dist/data/point_subtype.bin.gz       uint8 industrial sub-type per row id (0 = not industrial;
+                                         codes in classes.json) -- display-only, see
+                                         training/industrial_subtype.py
     dist/data/states.json.gz             state outlines (simplified) + bounding boxes
     dist/data/facilities.json.gz         known facilities: GEM points + OSM industrial context
 
@@ -59,6 +62,7 @@ import pyarrow.parquet as pq
 from backend.classification.rules import CLASSES
 from backend.config import (
     ALERTS_HISTORY_PATH,
+    GEM_MULTISECTOR_FACILITIES_PATH,
     CLASS_COLORS,
     CLASS_COLORS_DARK,
     CLASS_DISPLAY_NAMES,
@@ -75,6 +79,14 @@ from backend.config import (
 )
 from backend.ingestion.context_sources import exclude_renewable_power_plants
 from backend.ingestion.firms_client import _env
+from training.industrial_subtype import (
+    ALL_SUBTYPES,
+    NOT_APPLICABLE_CODE,
+    NOT_IDENTIFIED,
+    SUBTYPE_CODE,
+    compute_industrial_subtypes,
+    load_typed_facilities,
+)
 from training.report_by_state import assign_state
 
 DIST_DIR = SITE_DIST_DIR
@@ -218,6 +230,7 @@ def export(
     states_path: Path = INDIA_BOUNDARY_PATH,
     facilities_path: Path = GEM_FACILITIES_PATH,
     industrial_context_path: Path = NATIONAL_INDUSTRIAL_CONTEXT_PATH,
+    subtype_gem_path: Path = GEM_MULTISECTOR_FACILITIES_PATH,
 ) -> dict:
     started = time.perf_counter()
     dist = Path(dist)
@@ -238,7 +251,9 @@ def export(
     shutil.copy2(Path(points_path).with_name(Path(points_path).name + ".gz"), data_dir / "points.bin.gz")
     (data_dir / "classes.json").write_text(json.dumps(
         {"classes": list(CLASSES), "colors": CLASS_COLORS, "colors_dark": CLASS_COLORS_DARK,
-         "display": CLASS_DISPLAY_NAMES}, indent=1, ensure_ascii=False
+         "display": CLASS_DISPLAY_NAMES,
+         "subtypes": [{"code": SUBTYPE_CODE[name], "name": name} for name in ALL_SUBTYPES],
+         "subtype_not_identified": SUBTYPE_CODE[NOT_IDENTIFIED]}, indent=1, ensure_ascii=False
     ), encoding="utf-8")
 
     # --- all rows, in row-id order (the pack's source order) ---
@@ -263,14 +278,31 @@ def export(
     _write_gz_json(_state_outlines(states_path, states), data_dir / "states.json.gz")
     _write_gz_json(_encode_facilities(_facility_frame(facilities_path, industrial_context_path)),
                    data_dir / "facilities.json.gz")
+    # --- industrial sub-types: a separate join over lat/lon/label, display-only. It reads
+    # `label` and never returns it, so no label can change (tests/test_industrial_subtype.py).
+    subtypes = compute_industrial_subtypes(
+        rows[["latitude", "longitude", "label"]], load_typed_facilities(subtype_gem_path, industrial_context_path)
+    )
+    sub_code = (subtypes["industrial_subtype"].map(SUBTYPE_CODE).fillna(NOT_APPLICABLE_CODE)
+                .astype(np.uint8).to_numpy())
+    _write_gz_bytes(sub_code.tobytes(), data_dir / "point_subtype.bin.gz")  # indexed by row id
+
+    anomalous = rows["is_anomalous"].fillna(False).astype(bool).to_numpy()
     table = pd.DataFrame({
-        "day": day, "cls": class_id, "state": state_id,
-        "anom": rows["is_anomalous"].fillna(False).astype(bool).to_numpy(),
+        "day": day, "cls": class_id, "state": state_id, "anom": anomalous,
     }).groupby(["day", "cls", "state"]).agg(n=("anom", "size"), anom=("anom", "sum")).reset_index()
+    sub_rows = sub_code > 0
+    sub_table = pd.DataFrame({
+        "day": day[sub_rows], "code": sub_code[sub_rows], "state": state_id[sub_rows], "anom": anomalous[sub_rows],
+    }).groupby(["day", "code", "state"]).agg(n=("anom", "size"), anom=("anom", "sum")).reset_index()
     _write_gz_json({
         "base_date": meta["base_date"], "classes": list(CLASSES), "states": states,
         "day": table["day"].tolist(), "cls": table["cls"].tolist(), "state": table["state"].tolist(),
         "n": table["n"].tolist(), "anom": table["anom"].astype(int).tolist(),
+        # industrial detections only, by sub-type; sums to the industrial class total
+        "sub": {"day": sub_table["day"].tolist(), "code": sub_table["code"].tolist(),
+                "state": sub_table["state"].tolist(), "n": sub_table["n"].tolist(),
+                "anom": sub_table["anom"].astype(int).tolist()},
     }, data_dir / "stats.json.gz")
 
     # --- alerts ---
@@ -286,7 +318,21 @@ def export(
         dicts[field] = uniques
         lookup = {v: i for i, v in enumerate(uniques)}
         codes[field] = values.map(lambda v: lookup.get(v, -1)).to_numpy()  # -1 = missing
+    # the facility each sub-type was read from: index into details/index.json "sub_facilities"
+    facility_keys = subtypes[["subtype_facility", "subtype_source", "subtype_kind"]].astype(object)
+    has_facility = subtypes["subtype_source"].notna().to_numpy()
+    distinct = facility_keys[has_facility].drop_duplicates().itertuples(index=False, name=None)
+    sub_facilities = [[None if pd.isna(n) else str(n), str(src), str(kind)] for n, src, kind in distinct]
+    facility_index = {tuple(f): i for i, f in enumerate(sub_facilities)}
+    sub_fac = [
+        facility_index[(None if pd.isna(n) else str(n), str(src), str(kind))] if ok else None
+        for ok, n, src, kind in zip(has_facility, facility_keys["subtype_facility"], facility_keys["subtype_source"],
+                                    facility_keys["subtype_kind"])
+    ]
     encoded = {
+        "sub": sub_code.tolist(),
+        "sub_fac": sub_fac,
+        "sub_dist": _nullable_ints(subtypes["subtype_distance_m"]),
         "lat": _nullable_ints(rows["latitude"], 1e5),
         "lon": _nullable_ints(rows["longitude"], 1e5),
         "day": day.tolist(),
@@ -302,6 +348,7 @@ def export(
     (data_dir / "details" / "index.json").write_text(json.dumps({
         "shard_rows": DETAIL_SHARD_ROWS, "shards": shards, "base_date": meta["base_date"],
         "scales": {"lat": 1e5, "lon": 1e5, "frp": 100}, "dicts": dicts,
+        "subtypes": list(ALL_SUBTYPES), "sub_facilities": sub_facilities,
     }))
 
     # --- meta.json last: it names the current version of every other data file ---

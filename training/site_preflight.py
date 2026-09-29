@@ -11,13 +11,16 @@ preflight() returns a list of failure reasons (empty = safe to deploy):
 3. consistency: an independent recount from the source parquets (the files the map
    pack lists) and training/data/live/alerts_history.csv must match the exported data
    exactly -- total, per class, per state x class, anomalous, the latest detection time,
-   and every point inside an Indian state (no offshore/border bucket);
+   every point inside an Indian state (no offshore/border bucket), and the industrial
+   sub-types (display-only): they cover exactly the industrial detections -- no other
+   class carries one -- and their per-sub-type table sums to the industrial class total;
 4. the page loads in headless Chrome, served from dist/ over local HTTP exactly as
    a static host would, with no JavaScript exception, console error or failed request,
    and what it *displays* matches the recount: the detections KPI, class rings, top
    states, alert counts per type and the "Data through" time, for All India / all
-   year, the latest month, Gujarat, and Gujarat with a class switched off -- and in
-   each view the number of points the GPU filter draws equals the KPI.
+   year, the latest month, Gujarat, Gujarat with a class switched off, and Gujarat with
+   one industrial sub-type switched off -- and in each view the number of points the GPU
+   filter draws equals the KPI.
 """
 
 from __future__ import annotations
@@ -51,7 +54,8 @@ ALERT_TYPE_NAMES = {
     "new_unmapped_source": "New unmapped source", "large_fire_event": "Large fire event",
 }
 AUDIT_STATE = "Gujarat"  # the state view the page audit checks
-AUDIT_CLASS_OFF = "agricultural burning"  # switched off in the last audit view
+AUDIT_CLASS_OFF = "agricultural burning"  # switched off in one audit view
+AUDIT_SUBTYPE_OFF = 1  # industrial sub-type code (Refinery / oil & gas) switched off in the last audit view
 OFFSHORE_STATE = "(offshore/border)"
 PAGE_TIMEOUT_S = 90
 _CHROME_CANDIDATES = (
@@ -188,6 +192,21 @@ def check_consistency(dist: Path, expected: dict, alerts_source: Path = ALERTS_H
     same("anomalous detections", int(sum(stats["anom"])), expected["anomalous"])
     same("data through (date)", meta["max_date"], expected["max_date"])
     same("data through (latest detection, UTC)", meta.get("data_through_utc"), expected["data_through_utc"])
+    # industrial sub-types: display-only, so they must line up with the class exactly
+    sub = stats.get("sub")
+    if sub is None:
+        failures.append("consistency: stats.json has no industrial sub-type table")
+    else:
+        same("industrial sub-type total (stats.json sub)", int(sum(sub["n"])), expected["by_class"].get("industrial", 0))
+        point_sub = np.frombuffer(gzip.decompress((data / "point_subtype.bin.gz").read_bytes()), np.uint8)
+        same("sub-type codes per row id (point_subtype.bin)", len(point_sub), expected["total"])
+        row_ids = np.frombuffer(raw, np.uint32, count=meta["layout"]["row_id"]["length"], offset=meta["layout"]["row_id"]["offset"])
+        class_ids = np.frombuffer(raw, np.uint8, count=layout["length"], offset=layout["offset"])
+        has_sub = point_sub[row_ids] > 0
+        is_industrial = class_ids == CLASSES.index("industrial")
+        if len(point_sub) == expected["total"] and (has_sub != is_industrial).any():
+            failures.append(f"consistency: {int((has_sub != is_industrial).sum()):,} points carry a sub-type without being "
+                            "industrial, or are industrial without one")
     outside = expected["by_state"].get(OFFSHORE_STATE, 0)
     if outside or OFFSHORE_STATE in stats["states"]:
         failures.append(f"consistency: {outside:,} detections fall outside every Indian state polygon")
@@ -197,7 +216,15 @@ def check_consistency(dist: Path, expected: dict, alerts_source: Path = ALERTS_H
     return failures
 
 
-def expected_display(expected: dict, alerts_csv: Path) -> dict:
+def subtype_count(dist: Path, state_name: str, code: int) -> int:
+    """Industrial detections of one sub-type in one state, from the exported stats.json."""
+    stats = json.loads(gzip.decompress((Path(dist) / "data" / "stats.json.gz").read_bytes()))
+    index = stats["states"].index(state_name)
+    sub = stats["sub"]
+    return int(sum(n for n, c, st in zip(sub["n"], sub["code"], sub["state"]) if c == code and st == index))
+
+
+def expected_display(expected: dict, alerts_csv: Path, sub_off_count: int = 0) -> dict:
     """What the page must show, formatted the way the dashboard formats it."""
     name = lambda c: CLASS_DISPLAY_NAMES.get(c, c)
     states = sorted(((s, v) for s, v in expected["by_state"].items() if s != OFFSHORE_STATE), key=lambda sv: -sv[1])
@@ -220,6 +247,7 @@ def expected_display(expected: dict, alerts_csv: Path) -> dict:
                   "rings": {name(c): _fmt_count(audit.get(c, 0)) for c in CLASSES}},
         "state_minus": {"kpi": _fmt_count(audit_total - audit.get(AUDIT_CLASS_OFF, 0)),
                         "visible": audit_total - audit.get(AUDIT_CLASS_OFF, 0)},
+        "sub_minus": {"kpi": _fmt_count(audit_total - sub_off_count), "visible": audit_total - sub_off_count},
     }
 
 
@@ -285,6 +313,8 @@ _PAGE_PROBE = """(async () => {
   await settle(); out.state = read();
   d.state.active.delete(d.meta.classes.indexOf('%s')); d.update({classesChanged: true});
   await settle(); out.state_minus = read();
+  d.state.active.add(d.meta.classes.indexOf('%s')); d.setSubtypeActive(%d, false);
+  await settle(); out.sub_minus = read();
   return out;
 })()"""
 
@@ -292,7 +322,8 @@ _PAGE_PROBE = """(async () => {
 def _compare_display(shown: dict, want: dict) -> list[str]:
     failures = []
     for view, label in (("all", "All India, all year"), ("month", "latest month"),
-                        ("state", AUDIT_STATE), ("state_minus", f"{AUDIT_STATE} without {AUDIT_CLASS_OFF}")):
+                        ("state", AUDIT_STATE), ("state_minus", f"{AUDIT_STATE} without {AUDIT_CLASS_OFF}"),
+                        ("sub_minus", f"{AUDIT_STATE} without industrial sub-type {AUDIT_SUBTYPE_OFF}")):
         got, exp = shown.get(view) or {}, want[view]
         if got.get("kpi") != exp["kpi"]:
             failures.append(f"page ({label}): Detections KPI shows {got.get('kpi')!r}, source says {exp['kpi']!r}")
@@ -371,7 +402,7 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S, want: dict | None = 
             send("Runtime.enable")
             send("Log.enable")
             send("Page.navigate", url=url)
-            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF),
+            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF, AUDIT_CLASS_OFF, AUDIT_SUBTYPE_OFF),
                           awaitPromise=True, returnByValue=True)
             time.sleep(1.5)
             send("Runtime.evaluate", expression="1")  # drain errors logged after the probe
@@ -408,7 +439,8 @@ def preflight(dist: Path = SITE_DIST_DIR, meta_path: Path = MAP_POINTS_META_PATH
     if failures:
         return failures
     try:
-        return check_page(dist, want=expected_display(expected, Path(dist) / "data" / "alerts_history.csv"))
+        sub_off = subtype_count(dist, AUDIT_STATE, AUDIT_SUBTYPE_OFF)
+        return check_page(dist, want=expected_display(expected, Path(dist) / "data" / "alerts_history.csv", sub_off))
     except Exception as error:  # the check itself broke: still a reason not to deploy
         return [f"headless Chrome check failed to run: {type(error).__name__}: {error}"]
 

@@ -26,6 +26,7 @@
     pixel: "VIIRS sees the ground in pixels about 375 m × 375 m. A detection means at least one fire somewhere in that pixel; it can't be placed more precisely.",
     candidate: "Raised automatically by a rule with starting thresholds. A person should check it before anyone acts on it.",
     unclassified: "No labelling rule matched, or more than one did. This is not a fire type: these detections need manual review.",
+    subtype: "The kind of the nearest mapped facility of a known type (GEM or OpenStreetMap) within 1 km. It describes that facility, not the fire, and never changes the class.",
     anomalous: "FRP well above this site's own earlier days (one-sided modified z-score above 3.5; only sites with 5+ earlier active days are judged).",
   };
   const FALLBACK_STYLE = { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b1117" } }] };
@@ -99,7 +100,12 @@
   function hideTerm(el) { termTip.hidden = true; el?.removeAttribute("aria-describedby"); }
   document.addEventListener("mouseover", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) showTerm(el); });
   document.addEventListener("mouseout", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) hideTerm(el); });
-  document.addEventListener("focusin", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) showTerm(el); });
+  // keyboard focus only: MapLibre focuses the first focusable element of a popup it opens, which would
+  // otherwise pop a tooltip open over the popup after a mouse click
+  document.addEventListener("focusin", (e) => {
+    const el = e.target.closest?.(".term[data-term]");
+    if (el && el.matches(":focus-visible")) showTerm(el);
+  });
   document.addEventListener("focusout", (e) => { const el = e.target.closest?.(".term[data-term]"); if (el) hideTerm(el); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTerm(); });
 
@@ -189,7 +195,7 @@
 
   setupMethodDrawer();
 
-  let meta, classesInfo, stats, buffer, detailIndex, rowStates, statesInfo;
+  let meta, classesInfo, stats, buffer, detailIndex, rowStates, statesInfo, rowSubtypes;
   showProgress("Loading detections…", "Fetching the data index", null);
   try {
     meta = await fetchJson(DATA + "meta.json", { cache: "no-cache" });
@@ -197,7 +203,7 @@
     const mb = (n) => (n / 1e6).toFixed(1);
     const loading = `Loading ${fmtCount(meta.count)} detections…`;
     showProgress(loading, "Starting", 0);
-    [classesInfo, stats, buffer, detailIndex, rowStates, statesInfo] = await Promise.all([
+    [classesInfo, stats, buffer, detailIndex, rowStates, statesInfo, rowSubtypes] = await Promise.all([
       fetchJson(dataUrl("classes.json")),
       fetchJson(dataUrl("stats.json.gz")),
       fetchBytes(dataUrl("points.bin.gz"), {
@@ -206,6 +212,7 @@
       fetchJson(dataUrl("details/index.json")),
       fetchBytes(dataUrl("point_state.bin.gz")),
       fetchJson(dataUrl("states.json.gz")),
+      fetchBytes(dataUrl("point_subtype.bin.gz")),
     ]);
     showProgress(loading, basemapFallback ? "Drawing" : "Waiting for the basemap", null);
     await mapLoaded;
@@ -220,6 +227,11 @@
   alertsReady.then(({ recolor }) => recolor());
   document.querySelectorAll("[data-swatch]").forEach((dt) =>
     dt.insertAdjacentHTML("afterbegin", `<span class="swatch" style="background:${colorFor(dt.dataset.swatch)}"></span>`));
+  {
+    const sub = stats.sub, untyped = sub.code.reduce((sum, code, i) => sum + (code === classesInfo.subtype_not_identified ? sub.n[i] : 0), 0);
+    const industrial = sub.n.reduce((a, b) => a + b, 0);
+    $("method-subtype-share").textContent = industrial ? `${((untyped / industrial) * 100).toFixed(0)}%` : "n/a";
+  }
   $("method-range").textContent = `${meta.base_date} to ${meta.data_through_utc ? istLabel(meta.data_through_utc) : meta.max_date}`;
 
   const CLASSES = meta.classes;
@@ -236,10 +248,13 @@
   const palette = CLASSES.map((label) => hexToRgba(colorFor(label)));
   const colors = new Uint8Array(N * 4);
   const filterValues = new Float32Array(N * 2); // [day, state index] per point
+  const filterCategories = new Uint8Array(N * 2); // [class, industrial sub-type; 0 = not industrial] per point
   for (let i = 0; i < N; i++) {
     colors.set(palette[classIds[i]], i * 4);
     filterValues[i * 2] = days[i];
     filterValues[i * 2 + 1] = rowStates[rowIds[i]]; // point_state.bin is indexed by row id
+    filterCategories[i * 2] = classIds[i];
+    filterCategories[i * 2 + 1] = rowSubtypes[rowIds[i]]; // point_subtype.bin likewise
   }
   const pointData = {
     length: N,
@@ -247,10 +262,13 @@
       getPosition: { value: positions, size: 2 },
       getFillColor: { value: colors, size: 4, normalized: true },
       getFilterValue: { value: filterValues, size: 2 },
+      getFilterCategory: { value: filterCategories, size: 2 },
     },
   };
-  const getFilterCategory = (_, { index }) => classIds[index];
-  const filterExtension = new deck.DataFilterExtension({ filterSize: 2, categorySize: 1, countItems: true });
+  const filterExtension = new deck.DataFilterExtension({ filterSize: 2, categorySize: 2, countItems: true });
+  const SUBTYPES = classesInfo.subtypes; // [{code, name}], codes 1..n; the last is "type not identified"
+  const SUB_NOT_IDENTIFIED = classesInfo.subtype_not_identified;
+  const INDUSTRIAL = CLASSES.indexOf("industrial");
 
   // --- dates and months ---------------------------------------------------------------------
   const base = Date.parse(meta.base_date + "T00:00:00Z");
@@ -280,6 +298,7 @@
     monthIndex: requestedMonth >= 0 ? requestedMonth : months.length - 1,
     allYear: params.get("all") === "1",
     active: new Set(CLASSES.map((_, i) => i)),
+    subActive: new Set(SUBTYPES.map((t) => t.code)), // industrial sub-types shown
     region: requestedState >= 0 ? requestedState : null, // index into stats.states, null = all India
     visible: null,
   };
@@ -299,8 +318,30 @@
       dayClass[stats.day[i]][stats.cls[i]] += stats.n[i];
       dayAnom[stats.day[i]][stats.cls[i]] += stats.anom[i];
     }
+    subtractHiddenSubtypes();
   }
-  buildDaily();
+  // industrial detections by sub-type (stats.sub), per day for the selected region -- the panel's counts
+  const daySub = Array.from({ length: nDays }, () => new Float64Array(SUBTYPES.length + 1));
+  function buildSubDaily() {
+    daySub.forEach((row) => row.fill(0));
+    const sub = stats.sub;
+    for (let i = 0; i < sub.n.length; i++) {
+      if (state.region != null && sub.state[i] !== state.region) continue;
+      daySub[sub.day[i]][sub.code[i]] += sub.n[i];
+    }
+  }
+  buildSubDaily();
+  // hiding a sub-type hides its industrial detections everywhere: the map (GPU filter) and every count
+  function subtractHiddenSubtypes() {
+    const sub = stats.sub;
+    for (let i = 0; i < sub.n.length; i++) {
+      if (state.subActive.has(sub.code[i])) continue;
+      if (state.region != null && sub.state[i] !== state.region) continue;
+      dayClass[sub.day[i]][INDUSTRIAL] -= sub.n[i];
+      dayAnom[sub.day[i]][INDUSTRIAL] -= sub.anom[i];
+    }
+  }
+  buildDaily(); // fills dayClass/dayAnom for the selected region, less any hidden sub-types
 
   function aggregate([from, to]) { // byClass / anom: selected region; byState: all states
     const byClass = new Float64Array(CLASSES.length);
@@ -317,6 +358,13 @@
       if (d < from || d > to || !state.active.has(stats.cls[i])) continue;
       const row = byState.get(stats.state[i]) ?? byState.set(stats.state[i], new Float64Array(CLASSES.length)).get(stats.state[i]);
       row[stats.cls[i]] += stats.n[i];
+    }
+    if (state.active.has(INDUSTRIAL)) {
+      const sub = stats.sub;
+      for (let i = 0; i < sub.n.length; i++) {
+        if (state.subActive.has(sub.code[i]) || sub.day[i] < from || sub.day[i] > to) continue;
+        byState.get(sub.state[i])[INDUSTRIAL] -= sub.n[i];
+      }
     }
     return { byClass, total: byClass.reduce((a, b) => a + b, 0), anom, byState, days: to - from + 1 };
   }
@@ -338,9 +386,8 @@
       opacity: 0.85,
       pickable: true,
       extensions: [filterExtension],
-      getFilterCategory,
       filterRange: [range(), state.region == null ? ALL_STATES : [state.region, state.region]],
-      filterCategories: [...state.active],
+      filterCategories: [[...state.active], [0, ...state.subActive]], // sub-type 0 = not industrial: always passes
       onFilteredItemsChange: ({ count }) => { state.visible = count; updateStatus(); },
     });
   }
@@ -508,6 +555,42 @@
     update({ classesChanged: true });
   });
 
+  // --- industrial sub-types: a second layer under Industrial; toggles filter the map --------------
+  function renderSubtypes() {
+    const [from, to] = range();
+    const totals = new Float64Array(SUBTYPES.length + 1);
+    for (let d = from; d <= to; d++) for (let c = 1; c <= SUBTYPES.length; c++) totals[c] += daySub[d][c];
+    const all = totals.reduce((a, b) => a + b, 0);
+    const industrialOn = state.active.has(INDUSTRIAL);
+    $("subtypes").classList.toggle("dim", !industrialOn);
+    if (!all) {
+      $("subtypes").innerHTML = '<p class="empty-note">No industrial detections in this period.</p>';
+      $("subtype-note").textContent = "";
+      return;
+    }
+    $("subtypes").innerHTML = SUBTYPES.map(({ code, name }) => {
+      const on = state.subActive.has(code);
+      const share = totals[code] / all;
+      return `<button type="button" class="subtype-btn${code === SUB_NOT_IDENTIFIED ? " untyped" : ""}" data-code="${code}" aria-pressed="${on}"
+        aria-label="${esc(name)}: ${fmtCount(totals[code])} industrial detections, ${(share * 100).toFixed(1)}%">
+        <span class="subtype-line"><span class="subtype-name">${esc(name)}</span><span class="subtype-count">${fmtCount(totals[code])}</span></span>
+        <span class="subtype-bar"><span style="width:${Math.max(share * 100, totals[code] ? 1.5 : 0).toFixed(1)}%"></span></span>
+      </button>`;
+    }).join("");
+    const untyped = totals[SUB_NOT_IDENTIFIED] / all;
+    $("subtype-note").innerHTML = `${(untyped * 100).toFixed(1)}% of these industrial detections have no ${term("subtype", "typed facility")} within 1 km ` +
+      `and read “${esc(SUBTYPES.find((t) => t.code === SUB_NOT_IDENTIFIED).name)}”. Types name the nearest mapped facility, not the fire, and never change the class.`;
+  }
+  $("subtypes").addEventListener("click", (event) => {
+    const btn = event.target.closest(".subtype-btn");
+    if (btn) setSubtypeActive(Number(btn.dataset.code), !state.subActive.has(Number(btn.dataset.code)));
+  });
+  function setSubtypeActive(code, on) {
+    if (on) state.subActive.add(code); else state.subActive.delete(code);
+    buildDaily();
+    update({ classesChanged: true });
+  }
+
   // --- top states ---------------------------------------------------------------------------
   const statesTip = $("states-tip");
   function renderStates(agg) {
@@ -668,6 +751,7 @@
       else if (index == null) map.flyTo({ center: [INDIA.lng, INDIA.lat], zoom: INDIA.zoom, duration: 900 });
     }
     buildDaily();
+    buildSubDaily();
     update({ classesChanged: true });
   }
   stateSelect.addEventListener("change", () => selectRegion(stateSelect.value === "" ? null : Number(stateSelect.value), { fly: true }));
@@ -705,6 +789,7 @@
     const agg = aggregate(range());
     renderKpis(agg);
     renderClassMix(agg);
+    renderSubtypes();
     renderStates(agg);
     if (classesChanged) renderTimeline(); else markTimelineSelection();
     updateStatus();
@@ -726,6 +811,9 @@
       recurrence_count: int("recurrence_count"), landcover_class: int("landcover_class"),
       dist_to_heat_industry_m: int("dist_to_heat_industry_m"), dist_to_flare_capable_m: int("dist_to_flare_capable_m"),
       dist_to_coal_mine_m: int("dist_to_coal_mine_m"), dist_to_industrial_m: int("dist_to_industrial_m"),
+      subtype: cols.sub[i] > 0 ? detailIndex.subtypes[cols.sub[i] - 1] : null, // industrial only
+      subtype_facility: cols.sub_fac[i] == null ? null : detailIndex.sub_facilities[cols.sub_fac[i]],
+      subtype_distance_m: cols.sub_dist[i],
       label: dict("label"), satellite: dict("satellite"), daynight: dict("daynight"),
       nearest_heat_facility_type: dict("nearest_heat_facility_type"), nearest_flare_facility_type: dict("nearest_flare_facility_type"),
       nearest_coal_source: dict("nearest_coal_source"), osm_industrial_tag: dict("osm_industrial_tag"), label_source: dict("label_source"),
@@ -755,6 +843,13 @@
       ["Label source", esc(d.label_source)],
       ["Location", `${d.latitude.toFixed(5)}, ${d.longitude.toFixed(5)}`],
     ];
+    if (d.subtype) { // industrial detections: the nearest typed facility within 1 km, or "not identified"
+      const [name, source, kind] = d.subtype_facility ?? [];
+      const where = d.subtype_facility
+        ? ` (${esc(name ?? `unnamed ${kind}`)}, ${fmtDistance(d.subtype_distance_m)}, ${esc(source)})`
+        : " (no typed facility within 1 km)";
+      rows.splice(0, 0, [term("subtype", "Type"), `${esc(d.subtype)}${where}`]);
+    }
     const reason = d.label_source === "rule" ? LABEL_REASONS.rule[d.label] : LABEL_REASONS[d.label_source];
     rows.unshift(["Why", `<span class="reason">${esc(reason ?? `label source: ${d.label_source ?? "n/a"}`)}</span>`]);
     return `<div class="detection"><h2><span class="swatch" style="background:${colorFor(d.label)}"></span>${d.label === "unknown" ? term("unclassified", esc(nameFor(d.label))) : esc(nameFor(d.label))}</h2><dl>` +
@@ -812,6 +907,7 @@
     state.allYear = false;
     state.monthIndex = months.length - 1;
     CLASSES.forEach((_, i) => state.active.add(i));
+    SUBTYPES.forEach((t) => state.subActive.add(t.code));
     facilitiesToggle.checked = false;
     if (facilities) $("facilities-legend").hidden = true;
     document.querySelector(".alert-item.selected")?.classList.remove("selected");
@@ -833,5 +929,5 @@
       if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
     });
   }
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, states: stats.states };
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, setSubtypeActive, states: stats.states };
 })();

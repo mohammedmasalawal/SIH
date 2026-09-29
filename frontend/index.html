@@ -58,6 +58,11 @@
       <h2 class="panel-title">Class mix <span class="panel-sub">click to show / hide</span></h2>
       <div id="class-mix" class="class-mix" role="group" aria-label="Detection classes"></div>
     </section>
+    <section class="panel" id="subtype-panel">
+      <h2 class="panel-title">Industrial types <span class="panel-sub">click to show / hide</span></h2>
+      <div id="subtypes" class="subtypes" role="group" aria-label="Industrial sub-types"></div>
+      <p id="subtype-note" class="subtype-note"></p>
+    </section>
     <section class="panel panel-grow">
       <h2 class="panel-title">Top states</h2>
       <div id="states" class="states"></div>
@@ -139,6 +144,8 @@
         <dd>No rule matched, or more than one did. This is not a fire type; these detections need manual review and are left out of model training.</dd>
       </dl>
       <p>Fire intensity (FRP) is never used to assign a label. Day/night is also left out on purpose so it can serve as an independent sanity check. <strong>Anomalous</strong> means the detection's FRP is a robust outlier (one-sided modified z-score &gt; 3.5) against the same site's earlier days, and only for sites with at least 5 earlier active days.</p>
+
+      <p><strong>Industrial types</strong> (Refinery / oil &amp; gas, Thermal power plant, Mine / coal-seam fire, Steel, Cement, Chemical / petrochemical) are display-only. Each names the nearest mapped facility of a known type within 1 km, from Global Energy Monitor and OpenStreetMap. That is the facility nearby, not necessarily the source of the fire, and it never changes a label. About <span id="method-subtype-share">a quarter</span> of industrial detections have no typed facility that close and read &ldquo;Industrial, type not identified&rdquo;. Types have been compared only with 67 hand-checked rows, nearly all Reliance and Nayara refinery sites.</p>
 
       <h3>Validation results (Jamnagar pilot, Gujarat)</h3>
       <table class="method-table accuracy-table">

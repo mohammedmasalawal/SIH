@@ -412,6 +412,26 @@ body {
 /* the map library sets an inline outline:none on its canvas */
 .maplibregl-canvas:focus-visible { outline: 2px solid var(--accent) !important; outline-offset: -2px; }
 
+/* ---------- industrial sub-types ---------- */
+.subtypes { display: grid; gap: 2px; }
+.subtypes.dim { opacity: 0.45; }
+.subtype-btn {
+  display: grid; gap: 3px; width: 100%;
+  padding: 4px 6px; margin: 0 -6px;
+  background: none; border: 0; border-radius: 4px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.subtype-btn:hover { background: var(--surface-2); }
+.subtype-btn[aria-pressed="false"] { opacity: 0.4; }
+.subtype-line { display: flex; justify-content: space-between; gap: 8px; }
+.subtype-name { color: var(--text-primary); }
+.subtype-btn.untyped .subtype-name { color: var(--text-secondary); font-style: italic; }
+.subtype-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.subtype-bar { display: block; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.subtype-bar span { display: block; height: 100%; background: #3987e5; border-radius: 3px; } /* the industrial class colour */
+.subtype-btn.untyped .subtype-bar span { background: #5b6f86; }
+.subtype-note { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+
 /* ---------- term tooltips ---------- */
 .term { border-bottom: 1px dotted currentColor; cursor: help; }
 .ring-btn.term { border-bottom: 0; }

@@ -321,3 +321,70 @@ def test_deploy_require_token_refuses_interactive_login(linked_dist, monkeypatch
     with pytest.raises(export_site.DeployError, match="VERCEL_TOKEN is not set"):
         export_site.deploy(linked_dist, require_token=True, run=fake, sleep=lambda s: None)
     assert fake.calls == []
+
+
+def test_export_industrial_subtypes_are_display_only(packed, tmp_path):
+    """Sub-types ride alongside the class: turning the multi-sector GEM join on or off must not
+    move a label, a point's class, or any class count -- only the sub-type files differ."""
+    from training.export_site import export
+    from training.industrial_subtype import ALL_SUBTYPES, NOT_IDENTIFIED, SUBTYPE_CODE
+
+    _, out_bin, out_meta = packed
+    alerts = tmp_path / "alerts_history.csv"
+    alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,industrial_anomaly,22.1,69.1,2026-01-01\n")
+    gem = tmp_path / "gem_multi.csv"  # a cement plant ~55 m from the fixture's one industrial detection (22.1, 69.1)
+    gem.write_text("facility_name,facility_type,latitude,longitude,status\nTest Cement,cement_plant,22.1005,69.1,operating\n")
+    none = tmp_path / "none.csv"
+
+    def run(name, subtype_gem):
+        dist = tmp_path / name
+        export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts, facilities_path=none,
+               industrial_context_path=tmp_path / "no_osm.parquet", subtype_gem_path=subtype_gem)
+        return dist / "data"
+
+    with_types, without = run("typed", gem), run("untyped", none)
+
+    def shard_labels(data):
+        index = json.loads((data / "details" / "index.json").read_text())
+        shard = json.loads(gzip.decompress((data / "details" / "0000.json.gz").read_bytes()))
+        return [index["dicts"]["label"][c] for c in shard["label"]], shard, index
+
+    labels_typed, shard, index = shard_labels(with_types)
+    labels_untyped, shard_untyped, _ = shard_labels(without)
+    assert labels_typed == labels_untyped == ["industrial", "wildfire", "agricultural burning"]  # byte-identical labels
+    assert (with_types / "points.bin.gz").read_bytes() == (without / "points.bin.gz").read_bytes()
+    stats = lambda data: json.loads(gzip.decompress((data / "stats.json.gz").read_bytes()))
+    a, b = stats(with_types), stats(without)
+    assert (a["cls"], a["n"], a["day"], a["state"]) == (b["cls"], b["n"], b["day"], b["state"])
+
+    # the industrial detection (row 0) reads Cement from the typed run, "not identified" from the untyped one
+    assert index["subtypes"] == list(ALL_SUBTYPES)
+    assert shard["sub"] == [SUBTYPE_CODE["Cement"], 0, 0] and shard_untyped["sub"] == [SUBTYPE_CODE[NOT_IDENTIFIED], 0, 0]
+    assert index["sub_facilities"][shard["sub_fac"][0]][0] == "Test Cement" and shard["sub_fac"][1:] == [None, None]
+    assert 40 <= shard["sub_dist"][0] <= 70 and shard_untyped["sub_fac"] == [None, None, None]
+    codes = lambda data: list(gzip.decompress((data / "point_subtype.bin.gz").read_bytes()))
+    assert codes(with_types) == [SUBTYPE_CODE["Cement"], 0, 0] and codes(without) == [SUBTYPE_CODE[NOT_IDENTIFIED], 0, 0]
+    assert sum(a["sub"]["n"]) == 1 and a["sub"]["code"] == [SUBTYPE_CODE["Cement"]]
+    classes = json.loads((with_types / "classes.json").read_text(encoding="utf-8"))
+    assert [t["name"] for t in classes["subtypes"]] == list(ALL_SUBTYPES)
+    assert classes["subtype_not_identified"] == SUBTYPE_CODE[NOT_IDENTIFIED]
+
+
+def test_preflight_flags_a_subtype_on_a_non_industrial_point(packed, tmp_path):
+    from training.export_site import export
+    from training.site_preflight import check_consistency, source_counts
+
+    _, out_bin, out_meta = packed
+    alerts = tmp_path / "alerts_history.csv"
+    alerts.write_text("alert_id,alert_type,latitude,longitude,acq_date\nx,industrial_anomaly,22.1,69.1,2026-01-01\n")
+    dist = tmp_path / "dist"
+    export(dist, meta_path=out_meta, points_path=out_bin, alerts_history=alerts, facilities_path=tmp_path / "none.csv",
+           industrial_context_path=tmp_path / "none.parquet", subtype_gem_path=tmp_path / "none.csv")
+    expected = source_counts(out_meta)
+    assert check_consistency(dist, expected, alerts) == []
+    path = dist / "data" / "point_subtype.bin.gz"
+    codes = bytearray(gzip.decompress(path.read_bytes()))
+    codes[1] = 3  # row 1 is a wildfire detection
+    path.write_bytes(gzip.compress(bytes(codes)))
+    problems = check_consistency(dist, expected, alerts)
+    assert any("sub-type without being industrial" in p for p in problems)

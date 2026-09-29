@@ -173,6 +173,12 @@ DUCKDB_MEMORY_LIMIT = "256MB"
 # National context caches -- the same inputs the historical national build used.
 NATIONAL_INDUSTRIAL_CONTEXT_PATH = ROOT_DIR / "data" / "osm" / "india_industrial_context.parquet"
 NATIONAL_FACILITIES_PATH = ROOT_DIR / "data" / "external" / "gem_facilities_india.geojson"
+# Industrial sub-types (training/industrial_subtype.py) -- display-only metadata. Reads the
+# multi-sector GEM table (coal mines, coal/gas plants, cement, steel, chemicals, oil & gas:
+# 1,166 sites), NOT the 98-site table above. That one is the only GEM input the labelling
+# rules and distance columns use; sub-types are a separate join and never feed the rules.
+GEM_MULTISECTOR_FACILITIES_PATH = ROOT_DIR / "data" / "external" / "gem_facilities_multisector_india.csv"
+INDUSTRIAL_SUBTYPE_RADIUS_M = 1_000  # fixed in advance, matching the ~1 km neighbourhood used elsewhere; not tuned
 NATIONAL_WORLDCOVER_DIR = ROOT_DIR / "data" / "raw" / "worldcover_india"
 # Live detections, one parquet per month; never mixed into NATIONAL_LABELED_PARQUETS.
 LIVE_DIR = ROOT_DIR / "training" / "data" / "live"
