@@ -16,6 +16,8 @@
   // Stack order in charts: bulk classes first, rare ones on top where they stay visible.
   const STACK_ORDER = ["agricultural burning", "wildfire", "unknown", "industrial", "gas flare"];
   const VERIFIED_STATES = new Set(["Gujarat"]); // the Jamnagar pilot, where gold-set review checked the labels
+  const OFFSHORE = "Offshore"; // the Mumbai High / KG basin zones, kept beyond India's boundary (backend/config.py OFFSHORE_ZONES)
+  const OFFSHORE_MIN_ACTIVE_DAYS = 5; // OFFSHORE_MIN_RECURRENCE
   const STALE_AFTER_HOURS = 24; // "Live feed delayed" once the newest detection is older than this
   const ALERTS_LIVE_START = "2026-09-01"; // training.ingest_latest / alerts_history.csv start date
   const ALERTS_LIVE_START_LABEL = "1 Sep 2026";
@@ -780,6 +782,7 @@
     const name = index == null ? null : stats.states[index];
     const note = $("state-validation");
     if (name == null) note.textContent = "Accuracy verified in the Jamnagar pilot, Gujarat; other states not yet validated.";
+    else if (name === OFFSHORE) note.innerHTML = '<span class="badge unvalidated">checked, small sample</span>Mumbai High and KG basin only, 10+ km beyond the India boundary. Gas flare = active on 5+ days. Sentinel-2 check: 21 of 30 sampled cells showed a hot pixel vs 0 of 15 open-sea points, but the sample held one KG basin cell.';
     else if (VERIFIED_STATES.has(name)) note.innerHTML = '<span class="badge verified">verified</span>Accuracy verified in the Jamnagar pilot, Gujarat; the rest of the state and other states not yet validated.';
     else note.innerHTML = `<span class="badge unvalidated">not validated</span>Accuracy verified in the Jamnagar pilot, Gujarat; ${esc(name)} not yet validated.`;
     const outline = statesInfo.outlines.features.filter((f) => f.properties.name === name);
@@ -857,6 +860,7 @@
       label: dict("label"), satellite: dict("satellite"), daynight: dict("daynight"),
       nearest_heat_facility_type: dict("nearest_heat_facility_type"), nearest_flare_facility_type: dict("nearest_flare_facility_type"),
       nearest_coal_source: dict("nearest_coal_source"), osm_industrial_tag: dict("osm_industrial_tag"), label_source: dict("label_source"),
+      offshore_zone: dict("offshore_zone"), dist_offshore_km: int("dist_offshore_km"),
     };
   }
 
@@ -868,8 +872,27 @@
   }
   const facility = (type, distance) => (type ? `${esc(type.replaceAll("_", " "))} · ${fmtDistance(distance)}` : fmtDistance(distance));
 
+  // The Why line and rows for a detection in the offshore zones: persistence is the whole evidence,
+  // so the land-based rows (landcover, facility distances) are replaced by where it is.
+  function offshoreWhy(d) {
+    const km = Math.round(d.dist_offshore_km ?? 0), days = d.recurrence_count ?? 0;
+    if (d.label_source === "offshore_persistent")
+      return `Persistent ${d.daynight === "D" ? "daytime" : "night-time"} heat ${km} km offshore, active ${days} day${days === 1 ? "" : "s"}`;
+    return `Offshore heat ${km} km out, active ${days} day${days === 1 ? "" : "s"}: a flare needs ${OFFSHORE_MIN_ACTIVE_DAYS}+`;
+  }
+
   function detectionHtml(d) {
-    const rows = [
+    const offshore = d.offshore_zone != null;
+    const rows = offshore ? [
+      ["Date", fmtTime(d.acq_date, d.acq_time)],
+      ["Day/night", d.daynight === "D" ? "Day" : d.daynight === "N" ? "Night" : "n/a"],
+      [term("frp", "FRP"), d.frp == null ? "n/a" : `${esc(d.frp)} MW`],
+      ["Recurrence", d.recurrence_count == null ? "n/a" : `${esc(d.recurrence_count)} day${d.recurrence_count === 1 ? "" : "s"} at this cell`],
+      [term("anomalous", "Anomalous"), d.is_anomalous ? "Yes" : "No"],
+      ["Offshore", `${esc(d.offshore_zone)} zone · ${esc(Math.round(d.dist_offshore_km ?? 0))} km beyond India's boundary`],
+      ["Label source", esc(d.label_source)],
+      ["Location", `${d.latitude.toFixed(5)}, ${d.longitude.toFixed(5)}`],
+    ] : [
       ["Date", fmtTime(d.acq_date, d.acq_time)],
       ["Day/night", d.daynight === "D" ? "Day" : d.daynight === "N" ? "Night" : "n/a"],
       [term("frp", "FRP"), d.frp == null ? "n/a" : `${esc(d.frp)} MW`],
@@ -891,7 +914,7 @@
       const swatch = `<span class="swatch" style="background:${SUB_COLOR[SUBTYPES.find((t) => t.name === d.subtype)?.code]}"></span> `;
       rows.splice(0, 0, [term("subtype", "Type"), `${swatch}${esc(d.subtype)}${where}`]);
     }
-    const reason = d.label_source === "rule" ? LABEL_REASONS.rule[d.label] : LABEL_REASONS[d.label_source];
+    const reason = offshore ? offshoreWhy(d) : d.label_source === "rule" ? LABEL_REASONS.rule[d.label] : LABEL_REASONS[d.label_source];
     rows.unshift(["Why", `<span class="reason">${esc(reason ?? `label source: ${d.label_source ?? "n/a"}`)}</span>`]);
     return `<div class="detection"><h2><span class="swatch" style="background:${colorFor(d.label)}"></span>${d.label === "unknown" ? term("unclassified", esc(nameFor(d.label))) : esc(nameFor(d.label))}</h2><dl>` +
       rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") + "</dl></div>";
@@ -972,5 +995,5 @@
       if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
     });
   }
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, setSubtypeActive, setColorMode, fillColor, radiusFor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, detectionHtml, setSubtypeActive, setColorMode, fillColor, radiusFor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
 })();

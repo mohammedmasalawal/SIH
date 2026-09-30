@@ -25,7 +25,6 @@ import pandas as pd
 from backend.classification.rules import apply_rules
 from backend.config import (
     CONTRACT_COLUMNS,
-    INDIA_BOUNDARY_PATH,
     NATIONAL_FACILITIES_PATH,
     NATIONAL_INDUSTRIAL_CONTEXT_PATH,
     NATIONAL_WORLDCOVER_DIR,
@@ -58,7 +57,7 @@ def normalise_raw(raw: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def select_offshore(raw: pd.DataFrame, boundary_path: Path = INDIA_BOUNDARY_PATH) -> pd.DataFrame:
+def select_offshore(raw: pd.DataFrame, boundary_path: Path | None = None) -> pd.DataFrame:
     """The offshore rows of an unclipped FIRMS frame, with region / offshore_zone /
     dist_offshore_km, de-duplicated on the detection key."""
     frame = normalise_raw(raw)
@@ -70,7 +69,7 @@ def select_offshore(raw: pd.DataFrame, boundary_path: Path = INDIA_BOUNDARY_PATH
     return rows
 
 
-def add_zone_columns(rows: pd.DataFrame, boundary_path: Path = INDIA_BOUNDARY_PATH) -> pd.DataFrame:
+def add_zone_columns(rows: pd.DataFrame, boundary_path: Path | None = None) -> pd.DataFrame:
     """region / offshore_zone / dist_offshore_km for rows the fetch already tagged offshore."""
     out = rows.copy()
     columns = offshore_columns(out, boundary_path)

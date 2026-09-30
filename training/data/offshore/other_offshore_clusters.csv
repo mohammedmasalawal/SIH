@@ -1,0 +1,4 @@
+lat,lon,cells,detections,active_days,first_seen,last_seen,night_share,frp_median,frp_max,coast_km,nearest_land_km,osm_platform_km,osm_platform,gem_field_km,gem_field
+11.267,80.004,7,459,211,2025-09-02,2026-09-29,0.85,2.1,10.61,18.2,17.6,1130.54,,53.2,Kuthalam Oil and Gas Field (India)
+18.703,72.344,2,22,18,2025-09-10,2026-09-24,0.41,3.8,40.2,51.4,51.2,55.84,,42.9,Ratna Oil and Gas Field (India)
+22.367,91.377,3,15,8,2025-09-18,2026-09-19,0.0,4.7,16.52,66.2,10.7,1932.68,,580.6,"Geleki Oil and Gas Field (Assam, India)"

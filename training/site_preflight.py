@@ -11,7 +11,9 @@ preflight() returns a list of failure reasons (empty = safe to deploy):
 3. consistency: an independent recount from the source parquets (the files the map
    pack lists) and training/data/live/alerts_history.csv must match the exported data
    exactly -- total, per class, per state x class, anomalous, the latest detection time,
-   every point inside an Indian state (no offshore/border bucket), and the industrial
+   every point inside an Indian state polygon -- or, if it is tagged region=offshore, inside
+   one of the two offshore zones and at least 10 km beyond the India boundary (nothing else
+   may lie outside India) -- and the industrial
    sub-types (display-only): they cover exactly the industrial detections -- no other
    class carries one -- and their per-sub-type table sums to the industrial class total;
 4. the page loads in headless Chrome, served from dist/ over local HTTP exactly as
@@ -29,6 +31,7 @@ import functools
 import gzip
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -41,6 +44,7 @@ from pathlib import Path
 import duckdb
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from backend.classification.rules import CLASSES
 from backend.config import (
@@ -49,9 +53,12 @@ from backend.config import (
     CLASS_COLORS_DARK,
     CLASS_DISPLAY_NAMES,
     MAP_POINTS_META_PATH,
+    OFFSHORE_REGION,
+    OFFSHORE_REGION_NAME,
     ROOT_DIR,
     SITE_DIST_DIR,
 )
+from backend.ingestion.offshore import offshore_columns
 from training.industrial_subtype import SUBTYPE_COLORS
 from training.report_by_state import assign_state
 
@@ -138,14 +145,22 @@ def source_counts(meta_path: Path = MAP_POINTS_META_PATH, states_path: Path | No
     sources = json.loads(Path(meta_path).read_text())["sources"]
     paths = [Path(s["path"]) if Path(s["path"]).is_absolute() else ROOT_DIR / s["path"] for s in sources]
     listing = "[" + ",".join("'" + p.as_posix().replace("'", "''") + "'" for p in paths) + "]"
+    has_region = any("region" in pq.read_schema(p).names for p in paths)  # only the offshore files carry it
     rows = duckdb.sql(
         f"select latitude, longitude, label, cast(acq_date as varchar) as acq_date, "
-        f"cast(acq_time as varchar) as acq_time, coalesce(cast(is_anomalous as boolean), false) as anom "
-        f"from read_parquet({listing}, union_by_name=true)"
+        f"cast(acq_time as varchar) as acq_time, coalesce(cast(is_anomalous as boolean), false) as anom"
+        + (", region" if has_region else "")
+        + f" from read_parquet({listing}, union_by_name=true)"
     ).df()
     rows["acq_date"] = rows["acq_date"].str[:10]
     state = (assign_state(rows[["latitude", "longitude"]], states_path) if states_path
-             else assign_state(rows[["latitude", "longitude"]])).fillna(OFFSHORE_STATE)
+             else assign_state(rows[["latitude", "longitude"]]))
+    offshore = (rows["region"] == OFFSHORE_REGION).fillna(False) if has_region else pd.Series(False, index=rows.index)
+    # An offshore-tagged row must really be in a zone, 10+ km beyond the boundary, and outside every state.
+    off_rows = rows[offshore]
+    in_zone = offshore_columns(off_rows, states_path)["offshore_zone"].notna() if len(off_rows) else pd.Series(dtype=bool)
+    offshore_bad = int((~in_zone | state[offshore].notna()).sum())
+    state = state.where(~offshore, OFFSHORE_REGION_NAME).fillna(OFFSHORE_STATE)
     hhmm = pd.to_numeric(rows["acq_time"], errors="coerce").fillna(0).astype(int)
     stamps = pd.to_datetime(rows["acq_date"]) + pd.to_timedelta(hhmm // 100, unit="h") + pd.to_timedelta(hhmm % 100, unit="m")
     by_state_class = rows.assign(state=state).groupby(["state", "label"]).size()
@@ -162,6 +177,8 @@ def source_counts(meta_path: Path = MAP_POINTS_META_PATH, states_path: Path | No
         "latest_month": latest_month,
         "latest_month_total": int((rows["acq_date"].str[:7] == latest_month).sum()),
         "audit_state_by_class": {c: int(v) for c, v in rows.loc[in_state, "label"].value_counts().items()},
+        "offshore_bad": offshore_bad,
+        "offshore_by_class": {c: int(v) for c, v in rows.loc[offshore, "label"].value_counts().items()},
     }
 
 
@@ -221,9 +238,13 @@ def check_consistency(dist: Path, expected: dict, alerts_source: Path = ALERTS_H
         if len(point_sub) == expected["total"] and (has_sub != is_industrial).any():
             failures.append(f"consistency: {int((has_sub != is_industrial).sum()):,} points carry a sub-type without being "
                             "industrial, or are industrial without one")
-    outside = expected["by_state"].get(OFFSHORE_STATE, 0)
+    outside = expected["by_state"].get(OFFSHORE_STATE, 0)  # not tagged offshore, yet in no state polygon
     if outside or OFFSHORE_STATE in stats["states"]:
-        failures.append(f"consistency: {outside:,} detections fall outside every Indian state polygon")
+        failures.append(f"consistency: {outside:,} detections fall outside every Indian state polygon "
+                        "and are not offshore-zone detections")
+    if expected.get("offshore_bad"):
+        failures.append(f"consistency: {expected['offshore_bad']:,} offshore-tagged detections are not inside an offshore "
+                        "zone at least 10 km beyond the India boundary, or fall inside a state polygon")
     exported_alerts, source_alerts = data / "alerts_history.csv", Path(alerts_source)
     if source_alerts.exists() and exported_alerts.read_bytes() != source_alerts.read_bytes():
         failures.append("consistency: data/alerts_history.csv differs from training/data/live/alerts_history.csv")
@@ -246,7 +267,9 @@ def expected_display(expected: dict, alerts_csv: Path, sub_off_count: int = 0) -
     by_type = alerts["alert_type"].value_counts()
     audit = expected["audit_state_by_class"]
     audit_total = sum(audit.values())
-    return {
+    offshore = expected.get("offshore_by_class") or {}
+    offshore_total = sum(offshore.values())
+    result = {
         "all": {
             "kpi": _fmt_count(expected["total"]), "visible": expected["total"],
             "rings": {name(c): _fmt_count(expected["by_class"].get(c, 0)) for c in CLASSES},
@@ -263,6 +286,10 @@ def expected_display(expected: dict, alerts_csv: Path, sub_off_count: int = 0) -
                         "visible": audit_total - audit.get(AUDIT_CLASS_OFF, 0)},
         "sub_minus": {"kpi": _fmt_count(audit_total - sub_off_count), "visible": audit_total - sub_off_count},
     }
+    if offshore_total:
+        result["offshore"] = {"kpi": _fmt_count(offshore_total), "visible": offshore_total,
+                              "rings": {name(c): _fmt_count(offshore.get(c, 0)) for c in CLASSES}}
+    return result
 
 
 def _chrome() -> str | None:
@@ -330,6 +357,12 @@ _PAGE_PROBE = """(async () => {
   d.state.active.add(d.meta.classes.indexOf('%s')); d.setSubtypeActive(%d, false);
   await settle(); out.sub_minus = read();
   d.setSubtypeActive(%d, true);
+  // the offshore region (when the data has one): its counts, and the popup's Why line for its last row
+  if (d.states.includes('%s')) {
+    d.selectRegion(d.states.indexOf('%s'));
+    await settle(); out.offshore = read();
+    out.offshore_popup = d.detectionHtml(await d.detailRecord(d.meta.count - 1)).replace(/<[^>]+>/g, ' ');
+  }
   // colour modes: class mode is exactly the class palette in classes.json; industrial-type mode colours only
   // industrial points (their sub-type colour) and dims everything else
   const info = await (await fetch('data/classes.json')).json();
@@ -365,6 +398,15 @@ def _compare_display(shown: dict, want: dict) -> list[str]:
             failures.append(f"page ({label}): map draws {got.get('visible')!r} points, source says {exp['visible']!r}")
         if "rings" in exp and got.get("rings") != exp["rings"]:
             failures.append(f"page ({label}): class counts {got.get('rings')} != source {exp['rings']}")
+    if "offshore" in want:
+        got, exp = shown.get("offshore") or {}, want["offshore"]
+        for key, what in (("kpi", "Detections KPI"), ("visible", "points drawn")):
+            if got.get(key) != exp[key]:
+                failures.append(f"page (Offshore): {what} shows {got.get(key)!r}, source says {exp[key]!r}")
+        if got.get("rings") != exp["rings"]:
+            failures.append(f"page (Offshore): class counts {got.get('rings')} != source {exp['rings']}")
+        if not re.search(r"(offshore, active \d+ days?|offshore heat \d+ km)", (shown.get("offshore_popup") or ""), re.I):
+            failures.append(f"page (Offshore): popup Why line not as specified: {(shown.get('offshore_popup') or '')[:160]!r}")
     if shown.get("colour_mode_default") != "class":
         failures.append(f"page: default colour mode is {shown.get('colour_mode_default')!r}, not 'class'")
     for message in shown.get("colour_errors") or []:
@@ -440,7 +482,8 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S, want: dict | None = 
             send("Runtime.enable")
             send("Log.enable")
             send("Page.navigate", url=url)
-            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF, AUDIT_CLASS_OFF, AUDIT_SUBTYPE_OFF, AUDIT_SUBTYPE_OFF),
+            result = send("Runtime.evaluate", expression=_PAGE_PROBE % (timeout_s * 1000, AUDIT_STATE, AUDIT_CLASS_OFF, AUDIT_CLASS_OFF, AUDIT_SUBTYPE_OFF, AUDIT_SUBTYPE_OFF,
+                                                    OFFSHORE_REGION_NAME, OFFSHORE_REGION_NAME),
                           awaitPromise=True, returnByValue=True)
             time.sleep(1.5)
             send("Runtime.evaluate", expression="1")  # drain errors logged after the probe

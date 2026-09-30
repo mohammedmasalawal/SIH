@@ -33,14 +33,16 @@ def zone_of(longitude: pd.Series, latitude: pd.Series, zones: dict = OFFSHORE_ZO
 
 def offshore_columns(
     frame: pd.DataFrame,
-    boundary_path: str | Path = INDIA_BOUNDARY_PATH,
+    boundary_path: str | Path | None = None,
     *,
     min_distance_km: float = OFFSHORE_MIN_DISTANCE_KM,
     zones: dict = OFFSHORE_ZONES,
 ) -> pd.DataFrame:
     """offshore_zone and dist_offshore_km (distance to the India boundary, km) per row of
     `frame`, both null unless the row is offshore. Only rows inside a zone box are measured,
-    so this stays cheap on a national frame."""
+    so this stays cheap on a national frame. boundary_path defaults to INDIA_BOUNDARY_PATH,
+    looked up at call time."""
+    boundary_path = boundary_path or INDIA_BOUNDARY_PATH
     out = pd.DataFrame(
         {"offshore_zone": pd.Series(None, index=frame.index, dtype="object"),
          "dist_offshore_km": pd.Series(np.nan, index=frame.index, dtype="float64")}
@@ -62,6 +64,6 @@ def offshore_columns(
     return out
 
 
-def is_offshore(frame: pd.DataFrame, boundary_path: str | Path = INDIA_BOUNDARY_PATH, **kwargs) -> pd.Series:
+def is_offshore(frame: pd.DataFrame, boundary_path: str | Path | None = None, **kwargs) -> pd.Series:
     """Boolean mask: the row is an offshore detection (see module docstring)."""
     return offshore_columns(frame, boundary_path, **kwargs)["offshore_zone"].notna()

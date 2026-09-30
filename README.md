@@ -34,7 +34,7 @@ python make_gold_sample.py --labeled training/data/labeled_hotspots.csv
 
 `/` is a static dashboard. It has:
 
-- every national detection (1.90M) on a GPU map;
+- every national detection (1.91M, including the offshore-zone detections below) on a GPU map;
 - situation KPIs, a class-mix toggle, the top states and a daily timeline per class;
 - the alerts panel;
 - a **region selector**, which filters the map, KPIs and timeline to one state and outlines it. Its caption reads "Accuracy verified in Gujarat; other states not yet validated", and a badge marks each state as verified or not;
@@ -82,7 +82,7 @@ python main.py                              # local: http://localhost:8000/ serv
 
 If the token leaks, delete it on the same Tokens page and create a new one.
 
-**Consistency check (part of the pre-deploy checks):** before every deploy, `site_preflight.source_counts` recounts from the source parquets that the map pack lists. It counts the total, each class, each state × class (its own `assign_state` run, not the export's), anomalous detections and the newest detection's time. The recount must match the exported `meta.json`, `stats.json` and `point_state.bin` exactly, as well as the class of every packed point. `alerts_history.csv` must match the live source byte for byte. Every detection must fall inside an Indian state polygon; today all 1,903,178 do. The headless-Chrome step then reads what the page *displays* and compares it with the same recount in four views: All India all year, the latest month, Gujarat, and Gujarat with agricultural burning switched off. It checks the detections figure, class counts, top states, alert counts per type and the "Data through … IST" time. In each view, the number of points the GPU filter draws must equal the detections figure. Any mismatch blocks the deploy. The whole check takes about 14 s.
+**Consistency check (part of the pre-deploy checks):** before every deploy, `site_preflight.source_counts` recounts from the source parquets that the map pack lists. It counts the total, each class, each state × class (its own `assign_state` run, not the export's), anomalous detections and the newest detection's time. The recount must match the exported `meta.json`, `stats.json` and `point_state.bin` exactly, as well as the class of every packed point. `alerts_history.csv` must match the live source byte for byte. Every detection must fall inside an Indian state polygon, except detections tagged `region=offshore`: those must lie inside one of the two offshore zones, at least 10 km beyond the India boundary, and outside every state polygon (anything else outside India blocks the deploy). The headless-Chrome step then reads what the page *displays* and compares it with the same recount in five views: All India all year, the latest month, Gujarat, Gujarat with agricultural burning switched off, and Offshore (where it also reads the popup's Why line for the newest offshore detection). It checks the detections figure, class counts, top states, alert counts per type and the "Data through … IST" time. In each view, the number of points the GPU filter draws must equal the detections figure. Any mismatch blocks the deploy. The whole check takes about 14 s.
 
 **Caching:** data files are requested as `file?v=<content hash>` (hashes in `meta.json`) and served with `max-age=31536000, immutable`, so a repeat visit only downloads files that changed. `meta.json`, `alerts_history.csv` and the page itself always revalidate (`vercel.json`).
 
@@ -103,6 +103,46 @@ Deliberately breaking the export confirmed that the checks block a deploy for a 
 - **Alerts panel:** lists `data/alerts_history.csv` newest first, with a type badge, a type filter, and the site, date, facility and metric for each alert. Clicking an alert flies the map there, opens its popup and switches the month.
 - **Performance:** measured with all 1.89M points on screen at 1400×900: about 116 fps panning on an RTX 3050 laptop GPU, but about 19 fps on the same laptop's Intel UHD integrated GPU (about 38 fps with one month shown). Chrome on Windows laptops uses the integrated GPU by default, so for smooth panning set Chrome to "High performance" under Windows Settings → System → Display → Graphics. The Vercel page loads in about 4 s.
 - **Local only:** the FastAPI server still serves `/api/map/*`, `/api/detection/{row_id}` (DuckDB row lookup), `/api/classify` and the old Leaflet demo page at `/legacy`. None of these exist on Vercel.
+
+### Offshore gas flares
+
+The India-boundary clip in `firms_client._clip_to_boundary` used to drop every detection at sea, including the offshore oil & gas fields that flare gas all year. **Status: built and validated on the branch `feature/offshore-gas-flares`; not merged, not deployed.**
+
+- **Zones** (`backend/config.py`, `OFFSHORE_ZONES`): Mumbai High (lon 70.5-72.3, lat 18.5-20.5) and KG basin (lon 81.0-83.5, lat 14.5-17.5). A detection is *offshore* when it is inside a zone, outside the India boundary and at least `OFFSHORE_MIN_DISTANCE_KM` (10) beyond it, so the generalised Natural Earth coastline can't turn shoreline into "offshore". Both bulk and live pulls keep these (`fetch_firms_multi(..., keep_offshore=True)`; the live pull always does) and tag them `region=offshore`; the onshore rows are exactly the rows the clip kept before.
+- **Rule** (`rules.apply_offshore_rules`, threshold fixed in advance, not tuned): offshore and `recurrence_count >= 5` (the existing flare threshold, `OFFSHORE_MIN_RECURRENCE = GAS_FLARE_MIN_RECURRENCE`) -> `gas flare`, `label_source = offshore_persistent`. Every other offshore detection stays `unknown`. Offshore rows never see the onshore rules: OSM, GEM and WorldCover describe land, and FRP, day/night and every context distance are not inputs.
+- **Storage:** offshore rows are separate parquets, so no onshore file is ever rewritten: `training/data/offshore/labeled_hotspots_offshore_history.parquet` (rebuilt with `python -m training.build_offshore --raw "data/raw/unclipped/india_*.parquet"` from unclipped FIRMS pulls, Sep 2025 to 30 Sep 2026) and `labeled_hotspots_offshore_live_YYYY-MM.parquet` beside the live partitions. Columns: `CONTRACT_COLUMNS` plus `region`, `offshore_zone`, `dist_offshore_km`. The map pack lists them last, so only their row ids move when a live month is added.
+- **Recurrence is not the onshore convention.** The history file counts a ~375 m cell's active days over its whole span (Sep 2025-Sep 2026, both directions); the onshore files count within 1-3 month period files. Live rows count earlier days within `RECURRENCE_LOOKBACK_DAYS` (90), like all live rows. So a cell active on 5 scattered days in the year is a flare in the history but not in the live path, and the live path labels a source only from its 5th active day: the 162 September 2026 offshore detections are 152 `gas flare` in the bulk file and 85 when replayed through the live path.
+- **No onshore label changed.** `apply_rules` labels a frame with no offshore rows by exactly the old code; `tests/test_offshore.py` compares the `label` and `label_source` columns byte for byte (parquet bytes) before and after, both in `apply_rules` and through `run_ingest` (the onshore live partition and onshore alerts are identical with and without offshore rows in the pull). On real data the new `apply_rules` and the old code give identical label bytes on the Q4 file, the May file and the September live partition (248,931 rows), and the seven onshore parquets are byte-for-byte the ones on `main`.
+- **Landcover over open sea:** WorldCover has no tile, or all-nodata pixels, at sea. The lookup leaves `landcover_class` null there (never fabricated) and does not raise; `tests/test_offshore.py` pins the all-ocean-tile, no-tile, tile-edge and empty-input cases. 3,169 of the 3,311 offshore rows are null; the 142 KG basin rows in tile N15E081 read class 80 (permanent water).
+
+**Numbers** (unclipped pull, 1 Sep 2025 to 30 Sep 2026): 3,311 offshore detections, 3,169 Mumbai High and 142 KG basin. 3,020 are `gas flare` (Mumbai High 2,912, KG basin 108) and 291 `unknown`. National gas-flare count: **2,884 before, 5,904 after** (+3,020; the historical files alone 2,692 -> 5,712, plus 192 live). National total 1,905,898 -> 1,909,209. Onshore counts are unchanged.
+
+**Validation, before adoption** (`training/offshore_validation.py`; the protocol was committed before any result existed). Pass rule, fixed in advance: a Sentinel-2 B12 hot pixel within 200 m at **>= 40%** of offshore cells with two or more clear scenes, and at **<= 1 of 15** open-sea controls; 40% is below the onshore hit rate (64%) because offshore flares may be smaller. The hot-pixel test is the onshore method (B12 > 0.30 and above median + 4 MAD of the 380 m box at 20 m; at least 80% clear pixels). 30 recurring cells were drawn at random (seed 20260930) from the 77 cells with 5+ active days, and 15 open-sea controls (uniform in the zones, 10+ km beyond the boundary and 5+ km from any detection ever recorded; controls without two clear scenes were replaced, 7 of 22 draws).
+
+| | Cells / points | Hot pixel within 200 m |
+|---|---|---|
+| Offshore cells, all with 2+ clear scenes | 30 | **21 (70%)**: pass |
+| Open-sea controls | 15 | **0**: pass |
+| of the cells, Mumbai High | 29 | 21 |
+| of the cells, KG basin | 1 | 0 |
+
+**The rule passed, but the draw held one KG basin cell**, so KG basin is barely tested by it. A follow-up on all six recurring KG basin cells (not part of the pass rule): 4 had two clear scenes and **1 of 4** showed a hot pixel; 3 of 6 showed one in some scene. All KG basin flares are one cluster near 16.55N, 82.59E, about 30 km offshore. Treat KG basin labels as weakly supported: the 108 KG basin `gas flare` detections rest mostly on the Mumbai High result. Scene dates and hot-pixel distances per point are in `training/data/offshore/validation_swir.json`.
+
+**OSM offshore platforms and GEM oil & gas fields** (compared afterwards, never used by the rule; `validation_platform_comparison.csv`): neither corroborates nor contradicts. The India OSM extract holds only 2 `man_made=offshore_platform` features, both in Mumbai harbour (72.85E), at least 71 km from any recurring cell (the public Overpass servers timed out, so a fuller OSM query was not possible). GEM's table has 14 oil & gas fields, none named Mumbai High: no recurring cell is within 5 km of one, 5 of 77 are within 25 km, and the median nearest field is 53 km away.
+
+**Other persistent offshore clusters, for review (not included in any rule or count).** From an unclipped India-wide pull: 5+ active days, outside the two zones, within 250 km of the India boundary and 10+ km from any land (`python -m training.offshore_validation clusters`, `other_offshore_clusters.csv`):
+
+| Cluster | Location | Active days | Detections | Night share | Median FRP | Distance to the coast |
+|---|---|---|---|---|---|---|
+| 1 | 11.267N, 80.004E (Bay of Bengal, off the Puducherry-Cuddalore coast) | 211 | 459 | 85% | 2.1 MW | 18 km |
+| 2 | 18.703N, 72.344E (0.04 deg east of the Mumbai High box, off Mumbai) | 18 | 22 | 41% | 3.8 MW | 51 km |
+| 3 | 22.367N, 91.377E (Meghna estuary, Bangladesh) | 8 | 15 | 0% | 4.7 MW | 66 km |
+
+Cluster 1 looks like a persistent night-time flare (nearest GEM field, Kuthalam, 53 km away; the two OSM platforms are 1,130 km off). Cluster 2 mixes day and night and sits next to Mumbai's approaches (shipping is a possible source). Cluster 3 is daytime-only and 11 km from land in a river delta, so it is probably a coastline or sandbar artefact.
+
+**Alerts.** Offshore detections join the alert evaluation; onshore alerts are unchanged. An offshore `industrial_anomaly` reads "Offshore flare · Mumbai High" with no facility distance. Replaying September 2026 through the live path gives 6 offshore alerts, all `industrial_anomaly` (0 of the other three types). Replaying the whole 13-month offshore history against the bulk labels gives 294: 266 `industrial_anomaly` and 28 `new_unmapped_source` (all before Feb 2026, when cells were still new).
+
+**Dashboard.** "Offshore" is a region in the selector (outlined as the two boxes), and its points are in the class mix, KPIs, timeline and top-states list. The popup's Why line reads, for example, "Persistent night-time heat 132 km offshore, active 75 days"; an offshore detection below the threshold reads "Offshore heat 131 km out, active 1 day: a flare needs 5+". The Validation & Method drawer states the rule and the KG basin caveat.
 
 ### Industrial sub-types (display only)
 

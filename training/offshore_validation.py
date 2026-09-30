@@ -3,6 +3,7 @@
     python -m training.offshore_validation sample      # 30 recurring offshore cells + 15 (+15 spare) open-sea controls
     python -m training.offshore_validation swir        # Sentinel-2 B12 hot-pixel check on both
     python -m training.offshore_validation compare     # cell locations vs OSM offshore platforms and GEM oil & gas fields
+    python -m training.offshore_validation kg          # supplementary: the same check on every recurring KG basin cell
     python -m training.offshore_validation clusters    # other persistent offshore clusters (review list, not rules)
 
 PASS RULE (fixed before any result was seen; not tuned afterwards): a hot pixel within 200 m in
@@ -306,6 +307,7 @@ def summarise(cells: list[dict], controls: list[dict]) -> dict:
 # --- comparison with OSM platforms and GEM fields -----------------------------------------
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_MIRROR = "https://overpass.kumi.systems/api/interpreter"
 
 
 def fetch_osm_platforms() -> gpd.GeoDataFrame:
@@ -316,7 +318,12 @@ def fetch_osm_platforms() -> gpd.GeoDataFrame:
     for zone, (west, south, east, north) in OFFSHORE_ZONES.items():
         query = (f'[out:json][timeout:120];(node["man_made"="offshore_platform"]({south},{west},{north},{east});'
                  f'way["man_made"="offshore_platform"]({south},{west},{north},{east}););out center tags;')
-        response = requests.post(OVERPASS_URL, data={"data": query}, timeout=180)
+        response = None
+        for endpoint in (OVERPASS_URL, OVERPASS_MIRROR) * 3:  # the public servers time out under load
+            response = requests.post(endpoint, data={"data": query}, headers={"User-Agent": "agninetra-offshore-validation/1.0"}, timeout=200)
+            if response.status_code == 200:
+                break
+            time.sleep(10)
         response.raise_for_status()
         for element in response.json().get("elements", []):
             lat = element.get("lat") or element.get("center", {}).get("lat")
@@ -351,11 +358,65 @@ def compare_locations(cells: pd.DataFrame, platforms: gpd.GeoDataFrame, gem: pd.
     return out
 
 
+# --- other persistent offshore clusters (a review list; nothing here feeds a rule) ------------
+
+CLUSTER_MAX_COAST_KM = 250.0
+CLUSTER_MIN_LAND_KM = OFFSHORE_MIN_DISTANCE_KM  # sea, not the shoreline of India or a neighbour
+CLUSTER_LINK_M = 2_000.0
+WORLD_ADMIN1 = "ne_10m_admin_1_states_provinces.shp"
+
+
+def other_offshore_clusters(raw_paths: list[Path], boundary_path: Path, world_admin1: Path) -> pd.DataFrame:
+    """Persistent cells (>= OFFSHORE_MIN_RECURRENCE active days over the pull) at sea, outside the
+    two offshore zones, within CLUSTER_MAX_COAST_KM of the India boundary and at least
+    CLUSTER_MIN_LAND_KM from any land polygon (India or a neighbour, Natural Earth admin-1),
+    linked into clusters when cells lie within CLUSTER_LINK_M of each other."""
+    from sklearn.cluster import DBSCAN
+
+    raw = pd.concat([pd.read_parquet(p, columns=["latitude", "longitude", "acq_date", "acq_time", "satellite", "frp", "daynight"])
+                     for p in raw_paths], ignore_index=True)
+    raw["acq_date"] = raw["acq_date"].astype(str).str[:10]
+    raw = raw.drop_duplicates(subset=["latitude", "longitude", "acq_date", "acq_time", "satellite"]).reset_index(drop=True)
+    in_zone = pd.Series(False, index=raw.index)
+    for west, south, east, north in OFFSHORE_ZONES.values():
+        in_zone |= raw["longitude"].between(west, east) & raw["latitude"].between(south, north)
+    raw = raw[~in_zone].reset_index(drop=True)
+
+    india = gpd.read_parquet(boundary_path).to_crs(NATIONAL_PROJECTED_CRS).geometry.union_all()
+    world = gpd.read_file(world_admin1, bbox=(55.0, -5.0, 105.0, 42.0)).to_crs(NATIONAL_PROJECTED_CRS)
+    land = world.geometry.union_all()
+    pts = gpd.GeoSeries(gpd.points_from_xy(raw["longitude"], raw["latitude"]), crs="EPSG:4326").to_crs(NATIONAL_PROJECTED_CRS)
+    raw["coast_km"] = pts.distance(india).to_numpy() / 1000.0
+    raw = raw[raw["coast_km"].between(0.001, CLUSTER_MAX_COAST_KM)]  # 0 = inside India
+    pts = pts.loc[raw.index]
+    raw["land_km"] = pts.distance(land).to_numpy() / 1000.0
+    sea = raw[raw["land_km"] >= CLUSTER_MIN_LAND_KM].copy()
+    grid_lat, grid_lon = grid_keys(sea)
+    sea["cell"] = grid_lat.astype(str) + "_" + grid_lon.astype(str)
+    active = sea.groupby("cell")["acq_date"].nunique()
+    persistent = sea[sea["cell"].map(active) >= OFFSHORE_MIN_RECURRENCE].copy()
+    if persistent.empty:
+        return pd.DataFrame()
+    cells = persistent.groupby("cell").agg(lat=("latitude", "mean"), lon=("longitude", "mean")).reset_index()
+    xy = gpd.GeoSeries(gpd.points_from_xy(cells["lon"], cells["lat"]), crs="EPSG:4326").to_crs(NATIONAL_PROJECTED_CRS)
+    cells["cluster"] = DBSCAN(eps=CLUSTER_LINK_M, min_samples=1).fit_predict(np.column_stack([xy.x, xy.y]))
+    persistent = persistent.merge(cells[["cell", "cluster"]], on="cell")
+    out = persistent.groupby("cluster").agg(
+        lat=("latitude", "mean"), lon=("longitude", "mean"), cells=("cell", "nunique"), detections=("acq_date", "size"),
+        active_days=("acq_date", "nunique"), first_seen=("acq_date", "min"), last_seen=("acq_date", "max"),
+        night_share=("daynight", lambda x: round(float((x == "N").mean()), 2)), frp_median=("frp", "median"),
+        frp_max=("frp", "max"), coast_km=("coast_km", "mean"), nearest_land_km=("land_km", "min"),
+    ).reset_index(drop=True)
+    for c in ("lat", "lon", "frp_median", "coast_km", "nearest_land_km"):
+        out[c] = out[c].round(3 if c in ("lat", "lon") else 1)
+    return out.sort_values("active_days", ascending=False).reset_index(drop=True)
+
+
 # --- CLI ----------------------------------------------------------------------------------
 
 def _main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("step", choices=["sample", "swir", "compare"])
+    parser.add_argument("step", choices=["sample", "swir", "compare", "kg", "clusters"])
     args = parser.parse_args()
     OFFSHORE_DIR.mkdir(parents=True, exist_ok=True)
     if args.step == "sample":
@@ -368,15 +429,54 @@ def _main() -> None:
         result = run_swir(json.loads(SAMPLE_PATH.read_text()))
         SWIR_PATH.write_text(json.dumps(result, indent=1))
         print(json.dumps(result["summary"], indent=1))
+    elif args.step == "clusters":
+        raw_paths = sorted(Path("data/raw/unclipped").glob("india_*.parquet"))
+        world = Path(INDIA_BOUNDARY_PATH).parent / WORLD_ADMIN1
+        clusters = other_offshore_clusters(raw_paths, INDIA_BOUNDARY_PATH, world)
+        clusters.to_csv(OFFSHORE_DIR / "other_offshore_clusters.csv", index=False)
+        pd.set_option("display.width", 250)
+        print(clusters.to_string())
+    elif args.step == "kg":
+        # Not part of the pass rule (which was fixed on the random draw): the draw held one KG basin
+        # cell, so this runs the identical check on all of them to see whether the result holds there.
+        rng = np.random.default_rng(SEED + 1)
+        _, cells = load_cells()
+        kg = cells[(cells["zone"] == "KG basin") & (cells["active_days"] >= OFFSHORE_MIN_RECURRENCE)].sort_values("cell")
+        client = Sentinel()
+        results = []
+        for i, r in enumerate(kg.itertuples(), 1):
+            point = {"id": f"K{i:02d}", "lat": float(r.lat), "lon": float(r.lon),
+                     "anchor_dates": sorted(rng.choice(r.dates, size=min(ANCHORS, len(r.dates)), replace=False).tolist())}
+            result = {**point, "active_days": int(r.active_days), **check_point(client, point)}
+            results.append(result)
+            print(f"  {point['id']} {point['lat']:.4f},{point['lon']:.4f} active {r.active_days}d  clear scenes "
+                  f"{result['n_clear_scenes']}  {'HIT' if result['hit'] else '-'}", flush=True)
+        ev = [x for x in results if x["evaluable"]]
+        summary = {"cells": len(results), "evaluable": len(ev), "hits": sum(x["hit"] for x in ev)}
+        (OFFSHORE_DIR / "validation_swir_kg_supplement.json").write_text(json.dumps({"cells": results, "summary": summary}, indent=1))
+        print(summary)
     elif args.step == "compare":
         rows, cells = load_cells()
         sample = json.loads(SAMPLE_PATH.read_text())
-        drawn = cells[cells["cell"].isin([c["cell"] for c in sample["cells"]])]
-        compared = compare_locations(cells[cells["active_days"] >= OFFSHORE_MIN_RECURRENCE].assign(),
-                                     fetch_osm_platforms(), pd.read_csv(GEM_MULTISECTOR_FACILITIES_PATH))
+        local = OFFSHORE_DIR / "osm_offshore_platforms_india_pbf.parquet"  # man_made=offshore_platform from the India extract
+        platforms = gpd.read_parquet(local) if local.exists() else fetch_osm_platforms()
+        gem = pd.read_csv(GEM_MULTISECTOR_FACILITIES_PATH)
+        recurring = cells[cells["active_days"] >= OFFSHORE_MIN_RECURRENCE]
+        compared = compare_locations(recurring, platforms, gem)
+        compared["drawn_for_swir"] = compared["cell"].isin([c["cell"] for c in sample["cells"]])
         compared.drop(columns=["dates"]).to_csv(OFFSHORE_DIR / "validation_platform_comparison.csv", index=False)
-        print(compared[["osm_platform_km", "gem_field_km"]].describe().to_string())
-        print("cells drawn for SWIR:", len(drawn))
+        print(f"OSM offshore platforms: {len(platforms)} in the source; GEM oil & gas fields: "
+              f"{int((gem['facility_type'] == 'oil_gas_field').sum())}")
+        for label, frame in (("all recurring cells", compared), ("30 drawn cells", compared[compared["drawn_for_swir"]])):
+            print(f"{label}: {len(frame)}; OSM platform within 1 km {int((frame['osm_platform_km'] <= 1).sum())}, "
+                  f"within 5 km {int((frame['osm_platform_km'] <= 5).sum())}; GEM field within 5 km "
+                  f"{int((frame['gem_field_km'] <= 5).sum())}, within 25 km {int((frame['gem_field_km'] <= 25).sum())}")
+        clusters_path = OFFSHORE_DIR / "other_offshore_clusters.csv"
+        if clusters_path.exists():
+            clusters = pd.read_csv(clusters_path).rename(columns={"lat": "lat", "lon": "lon"})
+            compared_clusters = compare_locations(clusters, platforms, gem)
+            compared_clusters.to_csv(clusters_path, index=False)
+            print(compared_clusters.to_string())
 
 
 if __name__ == "__main__":

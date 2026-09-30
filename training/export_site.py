@@ -74,6 +74,9 @@ from backend.config import (
     MAP_POINTS_META_PATH,
     MAP_POINTS_PATH,
     NATIONAL_INDUSTRIAL_CONTEXT_PATH,
+    OFFSHORE_REGION,
+    OFFSHORE_REGION_NAME,
+    OFFSHORE_ZONES,
     ROOT_DIR,
     SITE_DIST_DIR,
 )
@@ -102,14 +105,15 @@ VERCEL_PROJECT = "agninetra"
 # dictionary codes for repeated strings (decoded with details/index.json).
 _DICT_FIELDS = (
     "label", "satellite", "daynight", "nearest_heat_facility_type", "nearest_flare_facility_type",
-    "nearest_coal_source", "osm_industrial_tag", "label_source",
+    "nearest_coal_source", "osm_industrial_tag", "label_source", "offshore_zone",
 )
 _INT_FIELDS = (
     "acq_time", "recurrence_count", "landcover_class",
     "dist_to_heat_industry_m", "dist_to_flare_capable_m", "dist_to_coal_mine_m", "dist_to_industrial_m",
+    "dist_offshore_km",
 )
 _DETAIL_COLUMNS = [
-    "latitude", "longitude", "acq_date", "frp", "is_anomalous", *_INT_FIELDS, *_DICT_FIELDS,
+    "latitude", "longitude", "acq_date", "frp", "is_anomalous", "region", *_INT_FIELDS, *_DICT_FIELDS,
 ]
 DEPLOY_MARKER = ".deployed"  # dist/.deployed: written after each successful deploy
 DEPLOY_RETRY_WAITS_S = (30, 90)  # a failed `vercel deploy` is retried after these waits
@@ -176,7 +180,15 @@ def _state_outlines(states_path: Path, names: list[str]) -> dict:
     outlines = gpd.GeoDataFrame({"name": states["name"].to_numpy()},
                                 geometry=states.geometry.simplify(0.01, preserve_topology=True).to_numpy(), crs=states.crs)
     bounds = {n: [round(v, 4) for v in g.bounds] for n, g in zip(states["name"], states.geometry)}
-    return {"bbox": bounds, "outlines": json.loads(outlines.to_json(drop_id=True))}
+    result = {"bbox": bounds, "outlines": json.loads(outlines.to_json(drop_id=True))}
+    if OFFSHORE_REGION_NAME in names:  # the offshore zones, drawn as their boxes
+        from shapely.geometry import MultiPolygon, box, mapping
+
+        boxes = MultiPolygon([box(*zone) for zone in OFFSHORE_ZONES.values()])
+        result["bbox"][OFFSHORE_REGION_NAME] = [round(v, 4) for v in boxes.bounds]
+        result["outlines"]["features"].append(
+            {"type": "Feature", "properties": {"name": OFFSHORE_REGION_NAME}, "geometry": mapping(boxes)})
+    return result
 
 
 def _facility_frame(facilities_path: Path, industrial_context_path: Path) -> pd.DataFrame:
@@ -277,7 +289,9 @@ def export(
     class_id = rows["label"].map({c: i for i, c in enumerate(CLASSES)}).to_numpy()
 
     # --- stats: detections per (day, class, state) ---
-    state = assign_state(rows[["latitude", "longitude"]], states_path).fillna(OFFSHORE_STATE)
+    state = assign_state(rows[["latitude", "longitude"]], states_path)
+    is_offshore = (rows["region"] == OFFSHORE_REGION).fillna(False).to_numpy()  # the offshore zones' own region
+    state = state.where(~is_offshore, OFFSHORE_REGION_NAME).fillna(OFFSHORE_STATE)
     states = sorted(state.unique())
     assert len(states) < 256, "state index is stored as uint8"
     state_id = state.map({s: i for i, s in enumerate(states)}).to_numpy().astype(np.uint8)

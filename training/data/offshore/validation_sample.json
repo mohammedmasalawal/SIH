@@ -1,0 +1,938 @@
+{
+ "seed": 20260930,
+ "n_recurring_cells": 77,
+ "cells": [
+  {
+   "id": "O01",
+   "cell": "4868_24291",
+   "zone": "KG basin",
+   "lat": 16.55158,
+   "lon": 82.58969,
+   "active_days": 6,
+   "detections": 7,
+   "dist_offshore_km": 29.9,
+   "anchor_dates": [
+    "2025-10-11",
+    "2025-11-13",
+    "2025-11-15"
+   ]
+  },
+  {
+   "id": "O02",
+   "cell": "5464_21246",
+   "zone": "Mumbai High",
+   "lat": 18.57733,
+   "lon": 72.2376,
+   "active_days": 5,
+   "detections": 6,
+   "dist_offshore_km": 65.2,
+   "anchor_dates": [
+    "2026-02-20",
+    "2026-03-21",
+    "2026-04-25"
+   ]
+  },
+  {
+   "id": "O03",
+   "cell": "5467_20891",
+   "zone": "Mumbai High",
+   "lat": 18.5873,
+   "lon": 71.03087,
+   "active_days": 5,
+   "detections": 5,
+   "dist_offshore_km": 184.8,
+   "anchor_dates": [
+    "2025-11-11",
+    "2026-03-07",
+    "2026-05-15"
+   ]
+  },
+  {
+   "id": "O04",
+   "cell": "5467_20892",
+   "zone": "Mumbai High",
+   "lat": 18.58711,
+   "lon": 71.03268,
+   "active_days": 22,
+   "detections": 23,
+   "dist_offshore_km": 184.6,
+   "anchor_dates": [
+    "2025-12-24",
+    "2026-03-25",
+    "2026-06-21"
+   ]
+  },
+  {
+   "id": "O05",
+   "cell": "5565_21189",
+   "zone": "Mumbai High",
+   "lat": 18.92053,
+   "lon": 72.042,
+   "active_days": 5,
+   "detections": 6,
+   "dist_offshore_km": 75.6,
+   "anchor_dates": [
+    "2025-11-05",
+    "2025-12-04",
+    "2026-03-15"
+   ]
+  },
+  {
+   "id": "O06",
+   "cell": "5580_21066",
+   "zone": "Mumbai High",
+   "lat": 18.97278,
+   "lon": 71.62428,
+   "active_days": 6,
+   "detections": 9,
+   "dist_offshore_km": 118.8,
+   "anchor_dates": [
+    "2025-11-09",
+    "2025-12-21",
+    "2026-04-04"
+   ]
+  },
+  {
+   "id": "O07",
+   "cell": "5640_20867",
+   "zone": "Mumbai High",
+   "lat": 19.17657,
+   "lon": 70.94706,
+   "active_days": 51,
+   "detections": 55,
+   "dist_offshore_km": 166.3,
+   "anchor_dates": [
+    "2026-02-07",
+    "2026-06-17",
+    "2026-09-25"
+   ]
+  },
+  {
+   "id": "O08",
+   "cell": "5641_20866",
+   "zone": "Mumbai High",
+   "lat": 19.1784,
+   "lon": 70.94476,
+   "active_days": 54,
+   "detections": 58,
+   "dist_offshore_km": 166.1,
+   "anchor_dates": [
+    "2025-12-05",
+    "2026-02-26",
+    "2026-04-24"
+   ]
+  },
+  {
+   "id": "O09",
+   "cell": "5641_20867",
+   "zone": "Mumbai High",
+   "lat": 19.17828,
+   "lon": 70.94711,
+   "active_days": 20,
+   "detections": 20,
+   "dist_offshore_km": 166.2,
+   "anchor_dates": [
+    "2026-01-12",
+    "2026-03-08",
+    "2026-06-12"
+   ]
+  },
+  {
+   "id": "O10",
+   "cell": "5669_21007",
+   "zone": "Mumbai High",
+   "lat": 19.27556,
+   "lon": 71.42468,
+   "active_days": 17,
+   "detections": 20,
+   "dist_offshore_km": 137.1,
+   "anchor_dates": [
+    "2025-10-03",
+    "2025-11-24",
+    "2026-04-26"
+   ]
+  },
+  {
+   "id": "O11",
+   "cell": "5669_21008",
+   "zone": "Mumbai High",
+   "lat": 19.27553,
+   "lon": 71.4262,
+   "active_days": 13,
+   "detections": 13,
+   "dist_offshore_km": 136.9,
+   "anchor_dates": [
+    "2026-02-04",
+    "2026-02-17",
+    "2026-04-08"
+   ]
+  },
+  {
+   "id": "O12",
+   "cell": "5671_21008",
+   "zone": "Mumbai High",
+   "lat": 19.28054,
+   "lon": 71.42709,
+   "active_days": 66,
+   "detections": 67,
+   "dist_offshore_km": 136.7,
+   "anchor_dates": [
+    "2025-12-29",
+    "2026-06-15",
+    "2026-07-09"
+   ]
+  },
+  {
+   "id": "O13",
+   "cell": "5687_21182",
+   "zone": "Mumbai High",
+   "lat": 19.33493,
+   "lon": 72.01879,
+   "active_days": 8,
+   "detections": 8,
+   "dist_offshore_km": 75.9,
+   "anchor_dates": [
+    "2025-09-09",
+    "2026-03-26",
+    "2026-06-19"
+   ]
+  },
+  {
+   "id": "O14",
+   "cell": "5690_20972",
+   "zone": "Mumbai High",
+   "lat": 19.34643,
+   "lon": 71.30449,
+   "active_days": 5,
+   "detections": 5,
+   "dist_offshore_km": 147.6,
+   "anchor_dates": [
+    "2026-01-20",
+    "2026-02-01",
+    "2026-09-28"
+   ]
+  },
+  {
+   "id": "O15",
+   "cell": "5691_20972",
+   "zone": "Mumbai High",
+   "lat": 19.34836,
+   "lon": 71.3046,
+   "active_days": 6,
+   "detections": 7,
+   "dist_offshore_km": 147.5,
+   "anchor_dates": [
+    "2025-10-08",
+    "2025-11-05",
+    "2026-02-08"
+   ]
+  },
+  {
+   "id": "O16",
+   "cell": "5696_20985",
+   "zone": "Mumbai High",
+   "lat": 19.36697,
+   "lon": 71.34983,
+   "active_days": 6,
+   "detections": 7,
+   "dist_offshore_km": 142.6,
+   "anchor_dates": [
+    "2026-04-09",
+    "2026-04-21",
+    "2026-06-03"
+   ]
+  },
+  {
+   "id": "O17",
+   "cell": "5696_20986",
+   "zone": "Mumbai High",
+   "lat": 19.36747,
+   "lon": 71.35301,
+   "active_days": 25,
+   "detections": 28,
+   "dist_offshore_km": 142.2,
+   "anchor_dates": [
+    "2026-02-26",
+    "2026-04-23",
+    "2026-05-27"
+   ]
+  },
+  {
+   "id": "O18",
+   "cell": "5696_20987",
+   "zone": "Mumbai High",
+   "lat": 19.3672,
+   "lon": 71.35523,
+   "active_days": 30,
+   "detections": 41,
+   "dist_offshore_km": 142.0,
+   "anchor_dates": [
+    "2026-04-08",
+    "2026-05-21",
+    "2026-06-27"
+   ]
+  },
+  {
+   "id": "O19",
+   "cell": "5697_20985",
+   "zone": "Mumbai High",
+   "lat": 19.36977,
+   "lon": 71.34954,
+   "active_days": 16,
+   "detections": 17,
+   "dist_offshore_km": 142.5,
+   "anchor_dates": [
+    "2026-01-16",
+    "2026-04-21",
+    "2026-06-04"
+   ]
+  },
+  {
+   "id": "O20",
+   "cell": "5697_20986",
+   "zone": "Mumbai High",
+   "lat": 19.36988,
+   "lon": 71.35282,
+   "active_days": 107,
+   "detections": 187,
+   "dist_offshore_km": 142.2,
+   "anchor_dates": [
+    "2026-04-24",
+    "2026-07-15",
+    "2026-09-08"
+   ]
+  },
+  {
+   "id": "O21",
+   "cell": "5698_20986",
+   "zone": "Mumbai High",
+   "lat": 19.37237,
+   "lon": 71.35252,
+   "active_days": 64,
+   "detections": 96,
+   "dist_offshore_km": 142.2,
+   "anchor_dates": [
+    "2026-04-12",
+    "2026-05-02",
+    "2026-05-09"
+   ]
+  },
+  {
+   "id": "O22",
+   "cell": "5698_20988",
+   "zone": "Mumbai High",
+   "lat": 19.37324,
+   "lon": 71.35939,
+   "active_days": 58,
+   "detections": 77,
+   "dist_offshore_km": 141.5,
+   "anchor_dates": [
+    "2025-12-02",
+    "2025-12-18",
+    "2025-12-29"
+   ]
+  },
+  {
+   "id": "O23",
+   "cell": "5698_20989",
+   "zone": "Mumbai High",
+   "lat": 19.3731,
+   "lon": 71.36205,
+   "active_days": 48,
+   "detections": 63,
+   "dist_offshore_km": 141.2,
+   "anchor_dates": [
+    "2025-11-02",
+    "2025-12-04",
+    "2026-01-04"
+   ]
+  },
+  {
+   "id": "O24",
+   "cell": "5743_20970",
+   "zone": "Mumbai High",
+   "lat": 19.52698,
+   "lon": 71.29827,
+   "active_days": 44,
+   "detections": 52,
+   "dist_offshore_km": 132.8,
+   "anchor_dates": [
+    "2025-11-30",
+    "2026-01-22",
+    "2026-09-18"
+   ]
+  },
+  {
+   "id": "O25",
+   "cell": "5744_20970",
+   "zone": "Mumbai High",
+   "lat": 19.52936,
+   "lon": 71.29821,
+   "active_days": 122,
+   "detections": 176,
+   "dist_offshore_km": 132.5,
+   "anchor_dates": [
+    "2025-10-05",
+    "2026-01-19",
+    "2026-02-15"
+   ]
+  },
+  {
+   "id": "O26",
+   "cell": "5755_20986",
+   "zone": "Mumbai High",
+   "lat": 19.56748,
+   "lon": 71.35283,
+   "active_days": 26,
+   "detections": 35,
+   "dist_offshore_km": 130.0,
+   "anchor_dates": [
+    "2026-01-11",
+    "2026-01-19",
+    "2026-02-09"
+   ]
+  },
+  {
+   "id": "O27",
+   "cell": "5755_20987",
+   "zone": "Mumbai High",
+   "lat": 19.56729,
+   "lon": 71.35572,
+   "active_days": 41,
+   "detections": 64,
+   "dist_offshore_km": 130.1,
+   "anchor_dates": [
+    "2025-09-10",
+    "2025-10-18",
+    "2026-05-14"
+   ]
+  },
+  {
+   "id": "O28",
+   "cell": "5756_20985",
+   "zone": "Mumbai High",
+   "lat": 19.57085,
+   "lon": 71.3499,
+   "active_days": 11,
+   "detections": 11,
+   "dist_offshore_km": 129.6,
+   "anchor_dates": [
+    "2025-10-11",
+    "2026-01-14",
+    "2026-01-15"
+   ]
+  },
+  {
+   "id": "O29",
+   "cell": "5756_20990",
+   "zone": "Mumbai High",
+   "lat": 19.57118,
+   "lon": 71.36494,
+   "active_days": 7,
+   "detections": 7,
+   "dist_offshore_km": 130.0,
+   "anchor_dates": [
+    "2025-12-26",
+    "2026-01-17",
+    "2026-05-16"
+   ]
+  },
+  {
+   "id": "O30",
+   "cell": "5757_20990",
+   "zone": "Mumbai High",
+   "lat": 19.57314,
+   "lon": 71.36532,
+   "active_days": 13,
+   "detections": 14,
+   "dist_offshore_km": 129.8,
+   "anchor_dates": [
+    "2026-05-29",
+    "2026-06-05",
+    "2026-06-16"
+   ]
+  }
+ ],
+ "controls": [
+  {
+   "id": "C01",
+   "zone": "Mumbai High",
+   "lat": 19.10066,
+   "lon": 71.15469,
+   "nearest_detection_km": 23.2,
+   "anchor_dates": [
+    "2026-02-27",
+    "2026-03-31",
+    "2026-05-09"
+   ]
+  },
+  {
+   "id": "C02",
+   "zone": "KG basin",
+   "lat": 15.6951,
+   "lon": 83.36683,
+   "nearest_detection_km": 125.6,
+   "anchor_dates": [
+    "2025-10-16",
+    "2025-11-12",
+    "2025-11-13"
+   ]
+  },
+  {
+   "id": "C03",
+   "zone": "Mumbai High",
+   "lat": 18.86513,
+   "lon": 71.5965,
+   "nearest_detection_km": 12.1,
+   "anchor_dates": [
+    "2025-09-09",
+    "2025-11-23",
+    "2026-02-09"
+   ]
+  },
+  {
+   "id": "C04",
+   "zone": "KG basin",
+   "lat": 14.83467,
+   "lon": 83.14775,
+   "nearest_detection_km": 191.8,
+   "anchor_dates": [
+    "2025-11-03",
+    "2025-11-08",
+    "2026-08-24"
+   ]
+  },
+  {
+   "id": "C05",
+   "zone": "KG basin",
+   "lat": 16.39643,
+   "lon": 82.89457,
+   "nearest_detection_km": 35.9,
+   "anchor_dates": [
+    "2025-10-12",
+    "2025-11-13",
+    "2026-04-08"
+   ]
+  },
+  {
+   "id": "C06",
+   "zone": "KG basin",
+   "lat": 15.46127,
+   "lon": 82.1665,
+   "nearest_detection_km": 101.9,
+   "anchor_dates": [
+    "2025-10-15",
+    "2025-10-31",
+    "2025-11-05"
+   ]
+  },
+  {
+   "id": "C07",
+   "zone": "KG basin",
+   "lat": 15.64662,
+   "lon": 81.3411,
+   "nearest_detection_km": 131.0,
+   "anchor_dates": [
+    "2025-10-07",
+    "2025-10-29",
+    "2025-11-08"
+   ]
+  },
+  {
+   "id": "C08",
+   "zone": "Mumbai High",
+   "lat": 19.72679,
+   "lon": 70.84443,
+   "nearest_detection_km": 51.7,
+   "anchor_dates": [
+    "2025-12-12",
+    "2026-06-27",
+    "2026-08-09"
+   ]
+  },
+  {
+   "id": "C09",
+   "zone": "Mumbai High",
+   "lat": 20.34433,
+   "lon": 71.45121,
+   "nearest_detection_km": 46.8,
+   "anchor_dates": [
+    "2025-11-20",
+    "2025-11-24",
+    "2026-02-24"
+   ]
+  },
+  {
+   "id": "C10",
+   "zone": "KG basin",
+   "lat": 16.95445,
+   "lon": 82.74967,
+   "nearest_detection_km": 47.3,
+   "anchor_dates": [
+    "2025-10-29",
+    "2025-11-07",
+    "2026-04-08"
+   ]
+  },
+  {
+   "id": "C11",
+   "zone": "KG basin",
+   "lat": 16.23414,
+   "lon": 83.39184,
+   "nearest_detection_km": 91.6,
+   "anchor_dates": [
+    "2025-11-08",
+    "2025-11-13",
+    "2026-04-08"
+   ]
+  },
+  {
+   "id": "C12",
+   "zone": "Mumbai High",
+   "lat": 20.06906,
+   "lon": 72.0703,
+   "nearest_detection_km": 25.0,
+   "anchor_dates": [
+    "2025-09-15",
+    "2025-10-15",
+    "2026-04-04"
+   ]
+  },
+  {
+   "id": "C13",
+   "zone": "Mumbai High",
+   "lat": 19.6457,
+   "lon": 70.6065,
+   "nearest_detection_km": 62.5,
+   "anchor_dates": [
+    "2026-02-14",
+    "2026-04-27",
+    "2026-06-10"
+   ]
+  },
+  {
+   "id": "C14",
+   "zone": "KG basin",
+   "lat": 16.83835,
+   "lon": 82.69829,
+   "nearest_detection_km": 33.3,
+   "anchor_dates": [
+    "2025-10-29",
+    "2025-10-31",
+    "2025-11-08"
+   ]
+  },
+  {
+   "id": "C15",
+   "zone": "KG basin",
+   "lat": 15.61059,
+   "lon": 81.38319,
+   "nearest_detection_km": 130.1,
+   "anchor_dates": [
+    "2025-10-29",
+    "2025-11-02",
+    "2025-11-10"
+   ]
+  },
+  {
+   "id": "C16",
+   "zone": "Mumbai High",
+   "lat": 20.03183,
+   "lon": 71.65124,
+   "nearest_detection_km": 28.9,
+   "anchor_dates": [
+    "2025-10-20",
+    "2026-01-08",
+    "2026-03-09"
+   ]
+  },
+  {
+   "id": "C17",
+   "zone": "KG basin",
+   "lat": 14.80326,
+   "lon": 81.97279,
+   "nearest_detection_km": 177.7,
+   "anchor_dates": [
+    "2025-10-31",
+    "2025-11-07",
+    "2025-11-14"
+   ]
+  },
+  {
+   "id": "C18",
+   "zone": "KG basin",
+   "lat": 17.32594,
+   "lon": 82.98054,
+   "nearest_detection_km": 94.9,
+   "anchor_dates": [
+    "2025-11-14",
+    "2025-11-16",
+    "2026-04-14"
+   ]
+  },
+  {
+   "id": "C19",
+   "zone": "Mumbai High",
+   "lat": 20.19546,
+   "lon": 70.60454,
+   "nearest_detection_km": 103.0,
+   "anchor_dates": [
+    "2025-12-20",
+    "2026-04-07",
+    "2026-09-22"
+   ]
+  },
+  {
+   "id": "C20",
+   "zone": "Mumbai High",
+   "lat": 19.56317,
+   "lon": 71.76449,
+   "nearest_detection_km": 15.7,
+   "anchor_dates": [
+    "2025-12-08",
+    "2026-06-17",
+    "2026-09-06"
+   ]
+  },
+  {
+   "id": "C21",
+   "zone": "KG basin",
+   "lat": 14.69003,
+   "lon": 83.17316,
+   "nearest_detection_km": 207.4,
+   "anchor_dates": [
+    "2025-10-07",
+    "2026-04-08",
+    "2026-08-24"
+   ]
+  },
+  {
+   "id": "C22",
+   "zone": "KG basin",
+   "lat": 16.14855,
+   "lon": 82.28021,
+   "nearest_detection_km": 24.5,
+   "anchor_dates": [
+    "2025-11-01",
+    "2025-11-11",
+    "2025-11-15"
+   ]
+  },
+  {
+   "id": "C23",
+   "zone": "KG basin",
+   "lat": 15.0634,
+   "lon": 81.18298,
+   "nearest_detection_km": 188.7,
+   "anchor_dates": [
+    "2025-10-13",
+    "2025-11-16",
+    "2026-04-14"
+   ]
+  },
+  {
+   "id": "C24",
+   "zone": "KG basin",
+   "lat": 16.07641,
+   "lon": 82.28827,
+   "nearest_detection_km": 32.4,
+   "anchor_dates": [
+    "2025-10-09",
+    "2025-11-05",
+    "2026-04-14"
+   ]
+  },
+  {
+   "id": "C25",
+   "zone": "KG basin",
+   "lat": 15.54112,
+   "lon": 81.10625,
+   "nearest_detection_km": 158.2,
+   "anchor_dates": [
+    "2025-10-09",
+    "2025-10-13",
+    "2025-11-03"
+   ]
+  },
+  {
+   "id": "C26",
+   "zone": "Mumbai High",
+   "lat": 20.11485,
+   "lon": 72.25109,
+   "nearest_detection_km": 27.1,
+   "anchor_dates": [
+    "2025-11-20",
+    "2025-12-11",
+    "2026-03-17"
+   ]
+  },
+  {
+   "id": "C27",
+   "zone": "KG basin",
+   "lat": 16.51222,
+   "lon": 83.2056,
+   "nearest_detection_km": 64.9,
+   "anchor_dates": [
+    "2025-11-04",
+    "2025-11-11",
+    "2026-04-08"
+   ]
+  },
+  {
+   "id": "C28",
+   "zone": "KG basin",
+   "lat": 15.2745,
+   "lon": 82.55229,
+   "nearest_detection_km": 123.8,
+   "anchor_dates": [
+    "2025-11-04",
+    "2025-11-09",
+    "2025-11-16"
+   ]
+  },
+  {
+   "id": "C29",
+   "zone": "KG basin",
+   "lat": 14.53964,
+   "lon": 82.88056,
+   "nearest_detection_km": 211.7,
+   "anchor_dates": [
+    "2025-10-07",
+    "2025-10-09",
+    "2026-03-29"
+   ]
+  },
+  {
+   "id": "C30",
+   "zone": "KG basin",
+   "lat": 15.16567,
+   "lon": 82.82283,
+   "nearest_detection_km": 143.8,
+   "anchor_dates": [
+    "2025-11-06",
+    "2025-11-07",
+    "2026-04-14"
+   ]
+  },
+  {
+   "id": "C31",
+   "zone": "KG basin",
+   "lat": 16.90038,
+   "lon": 83.25736,
+   "nearest_detection_km": 80.1,
+   "anchor_dates": [
+    "2025-10-29",
+    "2025-11-05",
+    "2025-11-11"
+   ]
+  },
+  {
+   "id": "C32",
+   "zone": "Mumbai High",
+   "lat": 19.38524,
+   "lon": 72.14258,
+   "nearest_detection_km": 13.6,
+   "anchor_dates": [
+    "2026-03-22",
+    "2026-04-03",
+    "2026-08-31"
+   ]
+  },
+  {
+   "id": "C33",
+   "zone": "Mumbai High",
+   "lat": 19.98464,
+   "lon": 70.79818,
+   "nearest_detection_km": 72.2,
+   "anchor_dates": [
+    "2025-12-30",
+    "2026-01-14",
+    "2026-03-09"
+   ]
+  },
+  {
+   "id": "C34",
+   "zone": "KG basin",
+   "lat": 16.26032,
+   "lon": 82.66026,
+   "nearest_detection_km": 32.8,
+   "anchor_dates": [
+    "2025-10-07",
+    "2025-10-16",
+    "2025-11-05"
+   ]
+  },
+  {
+   "id": "C35",
+   "zone": "KG basin",
+   "lat": 16.10801,
+   "lon": 81.7466,
+   "nearest_detection_km": 66.8,
+   "anchor_dates": [
+    "2025-11-07",
+    "2025-11-11",
+    "2025-11-14"
+   ]
+  },
+  {
+   "id": "C36",
+   "zone": "KG basin",
+   "lat": 16.74523,
+   "lon": 83.09352,
+   "nearest_detection_km": 57.0,
+   "anchor_dates": [
+    "2025-11-01",
+    "2026-08-11",
+    "2026-08-24"
+   ]
+  },
+  {
+   "id": "C37",
+   "zone": "KG basin",
+   "lat": 16.42636,
+   "lon": 82.38906,
+   "nearest_detection_km": 9.3,
+   "anchor_dates": [
+    "2025-10-09",
+    "2025-10-15",
+    "2025-11-14"
+   ]
+  },
+  {
+   "id": "C38",
+   "zone": "Mumbai High",
+   "lat": 19.84079,
+   "lon": 71.85801,
+   "nearest_detection_km": 26.9,
+   "anchor_dates": [
+    "2025-12-30",
+    "2026-01-13",
+    "2026-02-03"
+   ]
+  },
+  {
+   "id": "C39",
+   "zone": "Mumbai High",
+   "lat": 20.14256,
+   "lon": 71.96753,
+   "nearest_detection_km": 11.6,
+   "anchor_dates": [
+    "2025-11-24",
+    "2026-01-17",
+    "2026-09-07"
+   ]
+  },
+  {
+   "id": "C40",
+   "zone": "Mumbai High",
+   "lat": 19.55497,
+   "lon": 70.53802,
+   "nearest_detection_km": 59.3,
+   "anchor_dates": [
+    "2026-01-12",
+    "2026-09-02",
+    "2026-09-10"
+   ]
+  }
+ ]
+}

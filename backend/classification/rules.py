@@ -252,12 +252,11 @@ def apply_rules(frame: pd.DataFrame) -> pd.DataFrame:
     offshore = _offshore_mask(frame)
     if not offshore.any():
         return _apply_onshore_rules(frame)
-    result = frame.copy()
-    for column in ("label", "label_source"):
-        result[column] = pd.Series(None, index=result.index, dtype="object")
+    parts = []
     if (~offshore).any():
-        onshore = _apply_onshore_rules(frame[~offshore])
-        result.loc[~offshore, ["label", "label_source"]] = onshore[["label", "label_source"]]
-    off = apply_offshore_rules(frame[offshore])
-    result.loc[offshore, ["label", "label_source"]] = off[["label", "label_source"]]
+        parts.append(_apply_onshore_rules(frame[~offshore])[["label", "label_source"]])
+    parts.append(apply_offshore_rules(frame[offshore])[["label", "label_source"]])
+    labels = pd.concat(parts).reindex(frame.index)
+    result = frame.copy()
+    result["label"], result["label_source"] = labels["label"], labels["label_source"]
     return result
