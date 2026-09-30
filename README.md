@@ -30,6 +30,29 @@ python make_gold_sample.py --labeled training/data/labeled_hotspots.csv
 
 `recurrence_count`, `first_seen`, `last_seen`, and `is_anomalous` are all computed over the full input FIRMS CSV, including whatever date range you pass in. That's correct for labelling, but if that CSV spans your eval period, Teammate 2 must recompute all four from pre-split (training-only) data before using them as model inputs, or they will leak future detections into the label/flag for past rows.
 
+### Data folder safety
+
+Live ingestion and the labelling pipeline read three large inputs that are **not in git**: the OSM extract `data/osm/india-latest.osm.pbf`, the industrial-context parquet built from it (`data/osm/india_industrial_context.parquet`) and the ESA WorldCover tiles in `data/raw/worldcover_india/` (102 tiles, 7.5 GB). `data/MANIFEST.json` records each file's name, size and SHA-256 (and, for tiles, the bucket URL). `training/run_ingest.cmd` runs `python -m training.data_manifest check` before anything else: if a file is missing or its size differs, the log gets a clear message, a failure ping goes to `HEARTBEAT_URL` (environment or `.env`; a healthchecks-style `<url>/fail`) if one is set, and the run exits with code 2 without ingesting, exporting or deploying. `python -m training.data_manifest check --checksums` also verifies the SHA-256s (minutes); `build` rewrites the manifest after a deliberate change.
+
+**Restoring them.** Tiles: `https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_<TILE>_Map.tif` (tile names are the keys of the manifest; same product, so sizes and checksums must match). OSM: a Geofabrik India extract from `https://download.geofabrik.de/asia/` (only the last week of daily snapshots and the 1st-of-month ones are kept, so an old one can't be re-fetched), then rebuild the context parquet with `extract_osm_industrial_context` unchanged. The 30 Sep 2026 restore used `india-260923.osm.pbf`; see "What the 30 Sep 2026 restore changed" below for how the rebuilt context differs from the original.
+
+**Rules for git worktrees** (written after a worktree removal deleted the OSM extract and the WorldCover tiles on 30 Sep 2026: two NTFS junctions from the worktree into `main`'s `data/` were followed by `git worktree remove --force`):
+
+1. **No junctions or symlinks from a worktree into `main`'s data. Ever.** A worktree that needs the large inputs sets `AGNINETRA_DATA_DIR` to the main folder's `data/` (`backend/config.py` `DATA_DIR`, used for the OSM context and WorldCover paths), or passes an absolute path to the script. Small inputs are copied.
+2. **Never `git worktree remove --force`.**
+3. **Before removing a worktree, list what is in it and confirm it has no junctions or symlinks**, and only then remove it with plain `git worktree remove`:
+   ```powershell
+   Get-ChildItem <worktree> -Recurse -Force -Attributes ReparsePoint   # must print nothing
+   ```
+   If it prints anything, delete that link itself first (`cmd /c rmdir <link>` for a junction; never `rm -r` or `Remove-Item -Recurse` on it), re-list, and only then remove the worktree. Copy out anything you want to keep (raw pulls, screenshots) before removing.
+
+**What the 30 Sep 2026 restore changed.** The deleted inputs were restored as follows; nothing stored in git or in the labelled parquets was touched.
+
+- **WorldCover:** all 102 tiles re-downloaded from the public bucket (same product). Every size matches the bucket (and the 12 pre-deletion sizes on record). Landcover recomputed for a random 20,000 of the 1,886,768 stored national detections matches the stored values exactly (0 mismatches, all six files, nine classes).
+- **OSM:** the 20 Sep 2026 Geofabrik extract is no longer served, so the 23 Sep one was used (`india-260923.osm.pbf`, md5 verified, stored as `india-latest.osm.pbf`). `india_industrial_context.parquet` was rebuilt with `extract_osm_industrial_context`, unchanged: **37,930 features against the lost file's 37,908** (+22; `landuse=industrial` 27,396 against 27,377). Live detections from 30 Sep on are therefore labelled against a context 3 days newer than the one the historical labels used.
+- **Drift, measured before adopting it (nothing written):** for 50,000 stored detections (30,870 national including 172 gold rows, plus all 19,130 live September detections) `dist_to_industrial_m` moved by 1 m or more in 14 rows (0.03%), `osm_industrial_tag` changed in 161 (0.32%), and **0 labels changed**, 0 gold rows included. Coal-mine and brick-kiln distances did not change.
+- **The one gold row that differs is not drift.** 18 of the 190 gold rows come from the regional Jamnagar file rather than the national parquets. Recomputed against the rebuilt context, **H013** moves from `industrial` to `agricultural burning`. H013 is the Hi Con solar plant (verified label "uncertain", "PV arrays… no combustion source"): the regional file's stored features predate the solar/wind exclusion and put it inside an industrial polygon that is a `plant:source=solar` plant, which the existing exclusion removes when the context is loaded. This is that exclusion's intended effect on a stale file, accepted as such; it is not a change caused by the new OSM snapshot. The other 17 regional gold rows, including the verified flare H014, are unchanged.
+
 ### National dashboard (Vercel)
 
 `/` is a static dashboard. It has:

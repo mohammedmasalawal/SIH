@@ -1,0 +1,529 @@
+{
+ "about": "Large inputs not in git; checked before every live ingest (training/data_manifest.py).",
+ "relative_to": "AGNINETRA_DATA_DIR (default: <repo>/data)",
+ "notes": {
+  "osm/india-latest.osm.pbf": "Geofabrik india-260923.osm.pbf (md5 47de076bd6e2d3aca761551d19bdf517, verified), https://download.geofabrik.de/asia/india-260923.osm.pbf. Replaced the 2026-09-20 extract (1,707,348,267 bytes), lost on 2026-09-30 and no longer served by Geofabrik.",
+  "osm/india_industrial_context.parquet": "Rebuilt from that extract with extract_osm_industrial_context, unchanged: 37,930 features (the lost file: 37,908). Solar/wind plants are excluded when it is loaded, not in the file.",
+  "raw/worldcover_india/*.tif": "102 ESA WorldCover v200 2021 tiles, re-downloaded from the public bucket on 2026-09-30; sizes match the bucket (and the 12 pre-deletion sizes on record); landcover recomputed for a random 20,000 stored detections matches exactly."
+ },
+ "files": {
+  "osm/india-latest.osm.pbf": {
+   "size": 1707899276,
+   "sha256": "ab0f9a466dcc8d3ed82d7c39a5d10c17836abda8debcc62f206940414698a89c"
+  },
+  "osm/india_industrial_context.parquet": {
+   "size": 9091529,
+   "sha256": "ebbf1caf72afcc1c48bb884c03c7e0d229cc370b29ea54380c98d2a2a65de118"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E072_Map.tif": {
+   "size": 2379446,
+   "sha256": "39b3c31129d41698a0197e0a90e04363f09cb5bfe5c81ebff7db4d22d1551a0e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E075_Map.tif": {
+   "size": 14485973,
+   "sha256": "b12ad89fcfd0f4b69fae04844d613abd768cfa01ea989e6688386d759035ec59",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E078_Map.tif": {
+   "size": 34407738,
+   "sha256": "a2de57f330a5a2e36014a3d0e86e8538f3b014d6ed8d7070165a2288a8e4b899",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E081_Map.tif": {
+   "size": 19310758,
+   "sha256": "484ca627ac65c6c69e0f1a5452fc7f6cb5624ce86bf17a7be9996a14442fee92",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E090_Map.tif": {
+   "size": 2049250,
+   "sha256": "3e9cabb4d607fedcd098107239f30bbba353cff96842f5d85b2b8d4cdc8d1491",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E093_Map.tif": {
+   "size": 3025549,
+   "sha256": "963f2b81ef003320377aaaa28318c1e3d8ca9e6ae9b33eb67cbb2e069e93235f",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N06E096_Map.tif": {
+   "size": 6600982,
+   "sha256": "eb4990faf03735663f8e0cbb7713916a3089e6a497cc37cda4164f92b8583696",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N06E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E072_Map.tif": {
+   "size": 2341607,
+   "sha256": "90cc41bc6c887bcda69d7ab0a9e7944afce4ae3215765ce428b11fb6de586a2a",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E075_Map.tif": {
+   "size": 75590338,
+   "sha256": "913f22dd9ba2b05f52eeb104ca88aa5162ec2d0a5dcef1124d4f19546ac49558",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E078_Map.tif": {
+   "size": 92254923,
+   "sha256": "ef5465394f62ee330bbfaaf3f42d67c87e54397e512e742c872a50ad2592fe3a",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E081_Map.tif": {
+   "size": 1951593,
+   "sha256": "8d95b60500ef13b0018a445e4c96fc2779483ccd235c43e3caea0bea822fbc91",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E090_Map.tif": {
+   "size": 3062512,
+   "sha256": "1f9baa96cf010d0dc90b56f562ef2e87ad61165cdb20dab4b034030a7513ac81",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E093_Map.tif": {
+   "size": 2056494,
+   "sha256": "a50c71e955465009d8fa6577a4179507c7e1fe7d160478695e54d4aae0392463",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N09E096_Map.tif": {
+   "size": 8730885,
+   "sha256": "e13189cfaa4dd7f24af02bcf9bf53f8998408eab7864c91927aa4b7c0eeff4aa",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N09E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N12E072_Map.tif": {
+   "size": 11493386,
+   "sha256": "df9c3244d807322ac585390afd8e13e4d6fa2b8a7c3efd9d132e948f2a04a8c9",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N12E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N12E075_Map.tif": {
+   "size": 127650362,
+   "sha256": "f9269901e07d86c2e180d661d0e8924e3ee57dd589f7433b9874861b3c65a978",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N12E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N12E078_Map.tif": {
+   "size": 119065806,
+   "sha256": "dde192f3e4fdba4e8fe5f4efb9dfa9f1756dc148f39084986e56f0fc0059ee5a",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N12E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N12E090_Map.tif": {
+   "size": 3863471,
+   "sha256": "d8e019e36e7b892d3d7be6c7184d948d3e1fe84a54be01e057fd7d9a5de2ffc2",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N12E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N12E093_Map.tif": {
+   "size": 2645656,
+   "sha256": "4c195ab93ef19955794e9ab7b6fc62eccb3035e8e03120bafb2a51bfb912ce2d",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N12E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N12E096_Map.tif": {
+   "size": 11609493,
+   "sha256": "237391ff6b03faa574f0f8132ed67914f225feca781c3466c73aaf205894b3b0",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N12E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N15E072_Map.tif": {
+   "size": 77831415,
+   "sha256": "101be8f8a2ae8ca99bbfd1445f3ca0906edbbaf21daac2916bdb44b167d63ded",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N15E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N15E075_Map.tif": {
+   "size": 103154625,
+   "sha256": "59e0a7f216b2d75042deb00256bfe48e1683e98b17ecbf978b70d9ab6885f67b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N15E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N15E078_Map.tif": {
+   "size": 116291512,
+   "sha256": "a89ea7777e0744027ea568a635692a5358709d81c47f71daf83e6b6c8e6a87d7",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N15E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N15E081_Map.tif": {
+   "size": 39539634,
+   "sha256": "c8688cf916236e6df08aa076ac813bd3562a122b8feae92c92de6b78989e24e6",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N15E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N15E093_Map.tif": {
+   "size": 32040917,
+   "sha256": "174c9ad71dd1788669ae75bb2f3c9e1d57564358fa74bfefa66d112f714a71cb",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N15E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N15E096_Map.tif": {
+   "size": 53983242,
+   "sha256": "085f32e32868c401dd78bb02a3b41f187667c078732de5c503e2347109653679",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N15E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E069_Map.tif": {
+   "size": 6316652,
+   "sha256": "de12893236ab88def935ede21fedb2655088b54db21e4c0ff385f5d56525cd30",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E072_Map.tif": {
+   "size": 125766199,
+   "sha256": "2d28650e0eba865efb08656e45b75a269eaf535f9260a245ae5aad72ee5a5c63",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E075_Map.tif": {
+   "size": 98525091,
+   "sha256": "edacd31016ab0b13fdf3d84de41c7dc1a9f42f8faadd5b8e21feef5eae2e4f75",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E078_Map.tif": {
+   "size": 108640122,
+   "sha256": "d5dc4b35680328aa1c1c5a31aba651b8c6010befdb6629ccf1b162de71effff3",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E081_Map.tif": {
+   "size": 132418174,
+   "sha256": "6c3470a2b235883df2577441199a6e730055776b86eb81f2b9e7f6adbd88278d",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E084_Map.tif": {
+   "size": 54269282,
+   "sha256": "43a88a24791410e97c68b06be427b2d59a5fbcf73eeb7c7ed224c516fbc7b815",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E087_Map.tif": {
+   "size": 2002722,
+   "sha256": "21c1aa0b7189713fd823b8944c4e359695a906813cf109c7c985f9a831941b12",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E090_Map.tif": {
+   "size": 6550384,
+   "sha256": "c02778db41b9b4f5586bebd3d1c9905d72c813cb4952158983be7945869db6ee",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E093_Map.tif": {
+   "size": 79262070,
+   "sha256": "96fea04731c47d46d24452eff8f72e93512dfeaac4b15dcdb94c0e0738d47418",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N18E096_Map.tif": {
+   "size": 80564579,
+   "sha256": "798873913b357169c6be22e398e3dcfe0617e0ba7b10d1de1e812f81a7cc3cb9",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N18E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E066_Map.tif": {
+   "size": 10192573,
+   "sha256": "928628a751319f3aeae15d4fa544d848239b80017b9d755ab42611202a01514b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E066_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E069_Map.tif": {
+   "size": 92933241,
+   "sha256": "16b768f3fd714f1a13fb399d6261a163b71d778227086468922b7cdc5f1fb830",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E072_Map.tif": {
+   "size": 133840887,
+   "sha256": "76d26bcf59645b0dc60c824a5a8c4237aa53ac6b880bd22df4c069bd8d91677e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E075_Map.tif": {
+   "size": 102720459,
+   "sha256": "3faa728a09171b9dbac9542208818b35665d17f510e0c096d46ade7e6136f09b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E078_Map.tif": {
+   "size": 118205353,
+   "sha256": "fda1d7e8db8e41c0efea8fd284d3592e156e4df531f04fac0a318395f185f97d",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E081_Map.tif": {
+   "size": 124090449,
+   "sha256": "a2041f7e61ce3abed44fd367d9222154141b01b96f3ab3664f609df25e52cd8f",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E084_Map.tif": {
+   "size": 127991194,
+   "sha256": "aca090736006257bb9ecdbac7a1a03597d38bf0ed56504ac9499ec003e84fbbe",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E087_Map.tif": {
+   "size": 81771213,
+   "sha256": "a652fbd8e327ceb600d309f1934223a8d95d7ab0902dbc524c830aba9587b160",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E090_Map.tif": {
+   "size": 58949208,
+   "sha256": "29a2d31b7f8d1a66c0910aa78b4dc3d7d26379f15e34c9fd3907aee0d32da9ee",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E093_Map.tif": {
+   "size": 94447576,
+   "sha256": "68cf0fb7e4c661128426a2c68578b022e6164a2e93a7c768284442be0521d10b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N21E096_Map.tif": {
+   "size": 93309494,
+   "sha256": "69d5fd5c2bd634cfa9acd1a5d983e719a4c223abc619f600d039ae0e34bec5e5",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N21E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E066_Map.tif": {
+   "size": 96971395,
+   "sha256": "81c6fc838f76d163cfa38a989dd8f69f534ce5bb0b68e19636e7ef161d5544af",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E066_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E069_Map.tif": {
+   "size": 130383847,
+   "sha256": "880a0b38edb42cb8f807999f94d1fb384bb9caaeb30c4f8f21af032907c6cc04",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E072_Map.tif": {
+   "size": 131047562,
+   "sha256": "7a1ea1fa2226ba34264fe54d6bc57dcd582b89cb20bc42cda6a7ef12867ee9cd",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E075_Map.tif": {
+   "size": 97319738,
+   "sha256": "6716ca9b692e4b012c3894949c2648a1f53cb72269d87c6a1de8418d27207d99",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E078_Map.tif": {
+   "size": 101801980,
+   "sha256": "24b1634023daf56fca5c373a4f1ef53d4726e6ba45f1d823b9f6373d043deede",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E081_Map.tif": {
+   "size": 126723055,
+   "sha256": "c55e245d83af125cd95c17c9c367174d5318a9560ebc4e58493007eafcd24959",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E084_Map.tif": {
+   "size": 123474050,
+   "sha256": "8b1d2333c81cc8ac0de1d9cbdfe5bd8ff85259e919caf8f21502ea8a7f2b4f1b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E087_Map.tif": {
+   "size": 117460909,
+   "sha256": "f9979e90b9b6247a3229efc31493383b4f3333c235c6ced4439726c1b585300e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E090_Map.tif": {
+   "size": 98826043,
+   "sha256": "df5e6544bc5b096c1c9f40d107410a7ae83d3c8c31ebabaf817a000d261a4924",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E093_Map.tif": {
+   "size": 55435233,
+   "sha256": "4e15a06ae0683caa81f954e312ede3cb440d82c0905f5e393ec8acb650db4d33",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N24E096_Map.tif": {
+   "size": 48641297,
+   "sha256": "b2cbb0b92d308852cd34208208933b53f2982463d9faf72eec8895e4eb3a0876",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N24E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E066_Map.tif": {
+   "size": 78075709,
+   "sha256": "3950c6b282cb4f735c94d86c1be8013521d609b47ba224ca538b40afba2812bf",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E066_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E069_Map.tif": {
+   "size": 105024722,
+   "sha256": "f023ee9f015c9382dcf312c68b0133f42d0cebb72ba5f48c23a646b37b7becda",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E072_Map.tif": {
+   "size": 108754189,
+   "sha256": "d5701719d5f34ad89ab56feb5eeb873eb1468535b9b1e3d280ce4253955e0ff7",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E075_Map.tif": {
+   "size": 91078639,
+   "sha256": "447f74f2168bb14947a77c99a5a05bdf861300f1e0bdb66dd26e7262620f563f",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E078_Map.tif": {
+   "size": 103610643,
+   "sha256": "b1e2b1ed27b3547cc558fa47fbaaabb1600ce210ba5db9790048f9ddd0ea4c0e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E081_Map.tif": {
+   "size": 104848806,
+   "sha256": "53ec713abf379327c053e255d0d5936f81c3ad491ba3b89954c81ba8fa5ee053",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E084_Map.tif": {
+   "size": 104225123,
+   "sha256": "43dd6237600f5a36b8dcd92228ee12fce3db386a07ac7f95defb90e806a21847",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E087_Map.tif": {
+   "size": 88835880,
+   "sha256": "d0f9b21302fbf6b1f9c33b52d7357604753614756acce809174479a7bf90eaa7",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E090_Map.tif": {
+   "size": 84842890,
+   "sha256": "bec06d96ea308f9b3af7c47e832814029e66d440c6c756cd80efeb3d67908b70",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E093_Map.tif": {
+   "size": 79061337,
+   "sha256": "648aa16f0448cb08eefd46bbd83e3f0dc8ef69af965d9249f59f7f4db29b9eb9",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N27E096_Map.tif": {
+   "size": 96124189,
+   "sha256": "fad67c5665b16eb8eb9a580ed56c226c87b215d97f829f44f4511279981a8ff4",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N27E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E066_Map.tif": {
+   "size": 63076146,
+   "sha256": "260278dfd5b8931c8328899018d7c53d5a00bee9f54d81eb8fb750c914138ded",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E066_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E069_Map.tif": {
+   "size": 150596996,
+   "sha256": "393c2c77ee3c001b91c7094ec4013d9365500ab2bfbc4eb1e48416a0757d05ee",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E072_Map.tif": {
+   "size": 122839390,
+   "sha256": "54c7fcb36c475831bc74767a817f3221b4058d4f05cde4a86181ed83f072e957",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E075_Map.tif": {
+   "size": 102543746,
+   "sha256": "a001d3a1e3ef918d68308c62d296dd921ed255fb9df5ed9558ff04b79d9567d3",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E078_Map.tif": {
+   "size": 93012520,
+   "sha256": "dc2cfe8967a0aa15d76bdff760d8f8252d57856698aeb4544d900b26318775f1",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E081_Map.tif": {
+   "size": 82091849,
+   "sha256": "5d6e57465d780dfe953ba503490f180724e05079a52c6f6c759f87768da1896b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E084_Map.tif": {
+   "size": 80311129,
+   "sha256": "9451888b642531453a7eb27e172161bd5cd66e20cb563084574d0a5b2ffc3e51",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E087_Map.tif": {
+   "size": 74436521,
+   "sha256": "bacb0e2f3c0e404f4c97390198441ea291551be9aa2b8f96e920ea9ca7b346e1",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E090_Map.tif": {
+   "size": 74589278,
+   "sha256": "076d46e7b319488b126d0c4da9d8d2e21a9c37ae89fe7768d204a45c574a453e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E093_Map.tif": {
+   "size": 124239426,
+   "sha256": "937b9e64816734b6a6e75ff9dbacc1404be2e3ae206915cbe8849e14b6176b1f",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N30E096_Map.tif": {
+   "size": 87758216,
+   "sha256": "6cd23633cbcdf8f7da8c96b7cc2d4912e69a694158f9e41cf0d1d1c9b70a837c",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N30E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E066_Map.tif": {
+   "size": 123999964,
+   "sha256": "6a610c4c775888d24920d54cefca7ebeaf29cc4fe6cbf8177d1a379760f90ffc",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E066_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E069_Map.tif": {
+   "size": 155712630,
+   "sha256": "6702a032b3a9df67041b566f6a96094bc69c822507dcf041874e61bce37578b4",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E072_Map.tif": {
+   "size": 153200236,
+   "sha256": "86b1d0251d60669c49b57bef06593da1896774fd7334bdb596f16bb20c8af239",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E075_Map.tif": {
+   "size": 97538409,
+   "sha256": "1cb5803cbedb29c319a0b9c0720e957454f482f5f309fd59ba34db8c69e0d7e4",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E078_Map.tif": {
+   "size": 38632951,
+   "sha256": "24bba16e77b55194b926dae1115c7f11759b688009bc5d07f8d295c53dce85da",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E081_Map.tif": {
+   "size": 36721693,
+   "sha256": "fda6fd46a64149c8a6a551ae978299c052e7247a9ef9e57a3d03918161059b94",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E084_Map.tif": {
+   "size": 39898023,
+   "sha256": "95b56f2b83849fad74fbce01e30d80f7991ab3494b15020d872b8dd8779c2fd2",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E087_Map.tif": {
+   "size": 73582396,
+   "sha256": "0c61b7913e7ce6e76955ff86b3b2afdddf9e3edf7d7416faae94684b8795633e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E090_Map.tif": {
+   "size": 82507371,
+   "sha256": "6de4e4d8f0b4fec27e7b1f525cdca9ccf3fe98b0f10189e9f4aaf7d86f3d9c54",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E093_Map.tif": {
+   "size": 70357364,
+   "sha256": "df749b98faac1955c5df62b44b516ad71338e29402a436ebf72ef5cfeb166939",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N33E096_Map.tif": {
+   "size": 82459347,
+   "sha256": "08f4ec13a54926fd9bd0d0a0d5c9e1438f1fc127547d07b5646bb1cbaf982da3",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N33E096_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E066_Map.tif": {
+   "size": 105253000,
+   "sha256": "32dcf1dc519b58523ba591ac350a3bfc524a3502f440b58a4b2b9d199ae3ba14",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E066_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E069_Map.tif": {
+   "size": 108423362,
+   "sha256": "8e3e4c68e73f15c90241bcbca15dc4514391e8203949bfa1e08e2f46954b70ea",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E069_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E072_Map.tif": {
+   "size": 97576027,
+   "sha256": "8cec035590dbba64da3078649f03c15788155a388972362d262c9f51b14182a3",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E072_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E075_Map.tif": {
+   "size": 71807987,
+   "sha256": "7fc90af2e3ae00f8c1c33dc284affff6bb8caaf857539eb3077e4d586e68e28f",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E075_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E078_Map.tif": {
+   "size": 32814014,
+   "sha256": "df5437da94ae1714e59d2d1728426f4ef98bf225bd7c9a696cba87bccd6e933e",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E078_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E081_Map.tif": {
+   "size": 17893724,
+   "sha256": "200b7fc324752ecaed5268e80c11a562ebed46db49372baf1735cae2f3daf096",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E081_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E084_Map.tif": {
+   "size": 15903058,
+   "sha256": "f9f00eb63494a1b65cfa10045581958f4f0df74a11f49427a9863908be157dd4",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E084_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E087_Map.tif": {
+   "size": 31115973,
+   "sha256": "527518f733c567f7e5d1f0917fd3d2a3ff5103ef637a57e3e5e3780aef8466f6",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E087_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E090_Map.tif": {
+   "size": 33970124,
+   "sha256": "1f3cbb2a39761789a2372f968c1b349177e47ffe4a47b67bb32b58ac9f0e0506",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E090_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E093_Map.tif": {
+   "size": 26780228,
+   "sha256": "ce855f0bf3099b1aa466392fd3186f17afdf3e006e1c0ab9c67e47d7487f7e34",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E093_Map.tif"
+  },
+  "raw/worldcover_india/ESA_WorldCover_10m_2021_v200_N36E096_Map.tif": {
+   "size": 74088063,
+   "sha256": "32ba091cca70173f8c6400d5c163f3c981923a4f2504e81664ed622ea0a0716b",
+   "source": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36E096_Map.tif"
+  }
+ }
+}
