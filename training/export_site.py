@@ -75,6 +75,7 @@ from backend.config import (
     MAP_POINTS_PATH,
     NATIONAL_INDUSTRIAL_CONTEXT_PATH,
     OFFSHORE_REGION,
+    PLACES_PATH,
     OFFSHORE_REGION_NAME,
     OFFSHORE_ZONES,
     ROOT_DIR,
@@ -82,6 +83,7 @@ from backend.config import (
 )
 from backend.ingestion.context_sources import exclude_renewable_power_plants
 from backend.ingestion.firms_client import _env
+from backend.places import Places, load_places
 from training.industrial_subtype import (
     ALL_SUBTYPES,
     DIM_ALPHA,
@@ -95,6 +97,8 @@ from training.industrial_subtype import (
     compute_industrial_subtypes,
     load_typed_facilities,
 )
+from training.alerts import detection_keys
+from training.place_display import build_alert_places, build_facility_places
 from training.report_by_state import assign_state
 
 DIST_DIR = SITE_DIST_DIR
@@ -135,10 +139,10 @@ _VERCEL_JSON = {
         # page, scripts, styles: revalidate on every visit (unchanged files answer 304)
         {"source": "/((?!data/).*)", "headers": _REVALIDATE},
         # data files are requested as <file>?v=<content hash>, so they can be cached for a year
-        {"source": "/data/((?!meta\\.json|alerts_history\\.csv).*)",
+        {"source": "/data/((?!meta\\.json|alerts_history\\.csv|alert_places\\.json\\.gz).*)",
          "headers": [{"key": "Cache-Control", "value": "public, max-age=31536000, immutable"}]},
         # ...except the two files that say what's current
-        {"source": "/data/(meta\\.json|alerts_history\\.csv)", "headers": _REVALIDATE},
+        {"source": "/data/(meta\\.json|alerts_history\\.csv|alert_places\\.json\\.gz)", "headers": _REVALIDATE},
     ],
 }
 
@@ -224,10 +228,10 @@ def _facility_frame(facilities_path: Path, industrial_context_path: Path) -> pd.
     return pd.concat(parts, ignore_index=True).dropna(subset=["lat", "lon"])
 
 
-def _encode_facilities(frame: pd.DataFrame) -> dict:
+def _encode_facilities(frame: pd.DataFrame, places: Places | None = None) -> dict:
     kinds = sorted(frame["kind"].astype(str).unique())
     kind_code = {k: i for i, k in enumerate(kinds)}
-    return {
+    encoded = {
         "groups": FACILITY_GROUPS, "kinds": kinds, "sources": ["GEM", "OSM"],
         "lat": _nullable_ints(frame["lat"], 1e5), "lon": _nullable_ints(frame["lon"], 1e5),
         "group": frame["group"].astype(int).tolist(),
@@ -235,6 +239,26 @@ def _encode_facilities(frame: pd.DataFrame) -> dict:
         "source": (frame["source"] == "OSM").astype(int).tolist(),
         "name": [None if pd.isna(n) or str(n).strip() == "" else str(n) for n in frame["name"]],
     }
+    if places is not None:  # display-only: the nearest place, for the facility popup's "Near" row
+        encoded.update(build_facility_places(frame["lat"].to_numpy(), frame["lon"].to_numpy(), places))
+    return encoded
+
+
+def _alert_raw_tags(meta: dict) -> dict:
+    """alert_id -> the detection's OSM industrial tag, for industrial_anomaly alerts (their id ends in
+    the detection key), read from the live partitions the pack lists."""
+    tags = {}
+    for source in meta["sources"]:
+        path = Path(source["path"]) if Path(source["path"]).is_absolute() else ROOT_DIR / source["path"]
+        if "_live_" not in path.name or "offshore" in path.name:
+            continue
+        columns = ["latitude", "longitude", "acq_date", "acq_time", "satellite", "osm_industrial_tag"]
+        if not set(columns) <= set(pq.read_schema(path).names):
+            continue
+        live = pd.read_parquet(path, columns=columns)
+        live = live[live["osm_industrial_tag"].notna()]
+        tags.update(zip("industrial_anomaly|" + detection_keys(live), "OSM industrial=" + live["osm_industrial_tag"].astype(str)))
+    return tags
 
 
 def export(
@@ -248,8 +272,13 @@ def export(
     facilities_path: Path = GEM_FACILITIES_PATH,
     industrial_context_path: Path = NATIONAL_INDUSTRIAL_CONTEXT_PATH,
     subtype_gem_path: Path = GEM_MULTISECTOR_FACILITIES_PATH,
+    places_path: Path | None = PLACES_PATH,
 ) -> dict:
     started = time.perf_counter()
+    place_seconds = 0.0
+    tick = time.perf_counter()
+    places = load_places(places_path) if places_path is not None and Path(places_path).exists() else None
+    place_seconds += time.perf_counter() - tick
     dist = Path(dist)
     meta = json.loads(Path(meta_path).read_text())
     data_dir = dist / "data"
@@ -297,8 +326,11 @@ def export(
     state_id = state.map({s: i for i, s in enumerate(states)}).to_numpy().astype(np.uint8)
     _write_gz_bytes(state_id.tobytes(), data_dir / "point_state.bin.gz")  # indexed by row id
     _write_gz_json(_state_outlines(states_path, states), data_dir / "states.json.gz")
-    _write_gz_json(_encode_facilities(_facility_frame(facilities_path, industrial_context_path)),
-                   data_dir / "facilities.json.gz")
+    facility_frame = _facility_frame(facilities_path, industrial_context_path)
+    tick = time.perf_counter()
+    encoded_facilities = _encode_facilities(facility_frame, places)
+    place_seconds += time.perf_counter() - tick  # of which the lookup is nearly all of it
+    _write_gz_json(encoded_facilities, data_dir / "facilities.json.gz")
     # --- industrial sub-types: a separate join over lat/lon/label, display-only. It reads
     # `label` and never returns it, so no label can change (tests/test_industrial_subtype.py).
     subtypes = compute_industrial_subtypes(
@@ -328,7 +360,12 @@ def export(
 
     # --- alerts ---
     if Path(alerts_history).exists():
-        shutil.copy2(alerts_history, data_dir / "alerts_history.csv")
+        shutil.copy2(alerts_history, data_dir / "alerts_history.csv")  # byte for byte: its schema never changes
+        if places is not None:
+            tick = time.perf_counter()
+            alerts_frame = pd.read_csv(alerts_history, dtype={"acq_time": str})
+            _write_gz_json(build_alert_places(alerts_frame, places, _alert_raw_tags(meta)), data_dir / "alert_places.json.gz")
+            place_seconds += time.perf_counter() - tick
 
     # --- detail shards ---
     dicts = {}
@@ -386,7 +423,8 @@ def export(
     size = sum(p.stat().st_size for p in dist.rglob("*") if p.is_file() and ".vercel" not in p.parts)
     files = sum(1 for p in dist.rglob("*") if p.is_file() and ".vercel" not in p.parts)
     return {"rows": len(rows), "shards": shards, "bytes": size, "files": files,
-            "seconds": round(time.perf_counter() - started, 1), "data_through": meta["max_date"]}
+            "seconds": round(time.perf_counter() - started, 1), "place_seconds": round(place_seconds, 2),
+            "data_through": meta["max_date"]}
 
 
 def is_stale(

@@ -116,6 +116,13 @@ OFFSHORE_DIR = ROOT_DIR / "training" / "data" / "offshore"
 OFFSHORE_HISTORY_PATH = OFFSHORE_DIR / "labeled_hotspots_offshore_history.parquet"
 OFFSHORE_LIVE_PREFIX = "labeled_hotspots_offshore_live_"
 
+# --- Place names (backend/places.py, training/extract_places.py) -- display-only -------------
+# OSM place=city/town/village nodes, written once from the India extract and used at export time
+# only. The lookup rule (in backend/places.py's docstring) is fixed, not tuned: nearest city or
+# town within this many km, otherwise the nearest village.
+PLACES_PATH = ROOT_DIR / "data" / "osm" / "places_india.parquet"
+PLACE_VILLAGE_FALLBACK_KM = 15.0
+
 # --- Training artifacts ------------------------------------------------------------
 MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model_400k.pkl"
 EVAL_SUMMARY_PATH = ROOT_DIR / "training" / "artifacts" / "eval_summary.json"

@@ -16,7 +16,11 @@ preflight() returns a list of failure reasons (empty = safe to deploy):
    may lie outside India) -- and the industrial
    sub-types (display-only): they cover exactly the industrial detections -- no other
    class carries one -- and their per-sub-type table sums to the industrial class total;
-4. the page loads in headless Chrome, served from dist/ over local HTTP exactly as
+4. place names (display-only; only when data/osm/places_india.parquet exists): every alert has one, an
+   independent recount from the source alerts and the places file matches alert_places.json.gz and
+   the facilities' near columns exactly, no alert title still shows a raw "OSM ...=..." tag, and the
+   page shows exactly those titles and "Near ..." strings;
+5. the page loads in headless Chrome, served from dist/ over local HTTP exactly as
    a static host would, with no JavaScript exception, console error or failed request,
    and what it *displays* matches the recount: the detections KPI, class rings, top
    states, alert counts per type and the "Data through" time, for All India / all
@@ -55,10 +59,15 @@ from backend.config import (
     MAP_POINTS_META_PATH,
     OFFSHORE_REGION,
     OFFSHORE_REGION_NAME,
+    PLACES_PATH,
     ROOT_DIR,
     SITE_DIST_DIR,
 )
 from backend.ingestion.offshore import offshore_columns
+from backend.places import load_places
+from training.place_display import (
+    RAW_OSM_TITLE, alert_title, build_alert_places, build_facility_places, near_text,
+)
 from training.industrial_subtype import SUBTYPE_COLORS
 from training.report_by_state import assign_state
 
@@ -128,6 +137,56 @@ def check_alerts(dist: Path) -> list[str]:
     if alerts["alert_id"].duplicated().any():
         failures.append("data/alerts_history.csv: duplicate alert_id")
     return failures
+
+
+def check_places(dist: Path, alerts_source: Path = ALERTS_HISTORY_PATH, places_path: Path = PLACES_PATH) -> tuple[list[str], dict | None]:
+    """Place-name checks (see the module docstring, item 4). Returns (failures, what the page must show)."""
+    data = Path(dist) / "data"
+    if not Path(places_path).exists():
+        return [], None  # no places file: nothing to check, and the export made no names
+    exported_path = data / "alert_places.json.gz"
+    if not exported_path.exists():
+        return ["place names: data/alert_places.json.gz is missing although the places file exists"], None
+    exported = json.loads(gzip.decompress(exported_path.read_bytes()))
+    places = load_places(places_path)
+    alerts = pd.read_csv(Path(alerts_source), dtype={"acq_time": str})
+    failures = []
+    want = build_alert_places(alerts, places, {a: (v[5]) for a, v in exported["alerts"].items() if v[5]})
+    missing = sorted(set(alerts["alert_id"]) - set(exported["alerts"]))
+    if missing:
+        failures.append(f"place names: {len(missing)} alerts have no place although a lookup exists, e.g. {missing[0]}")
+    wrong = 0
+    for alert_id, got in exported["alerts"].items():
+        exp = want["alerts"].get(alert_id)
+        if exp is None or near_text(exported["places"], *got[:3]) != near_text(want["places"], *exp[:3]) \
+                or got[3] != exp[3] or got[4] != exp[4]:
+            wrong += 1
+    if wrong:
+        failures.append(f"place names: {wrong} exported alert names differ from an independent recount")
+    raw_titles = []
+    for row in alerts.itertuples(index=False):
+        entry = exported["alerts"].get(row.alert_id)
+        title = entry[4] if entry and entry[4] else None
+        shown = title or str(getattr(row, "facility_type", "") or "").replace("_", " ")
+        if RAW_OSM_TITLE.search(shown):
+            raw_titles.append(shown)
+    if raw_titles:
+        failures.append(f"place names: {len(raw_titles)} alert titles still show a raw OSM tag, e.g. {raw_titles[0]!r}")
+    facilities = json.loads(gzip.decompress((data / "facilities.json.gz").read_bytes()))
+    if "near_places" not in facilities:
+        failures.append("place names: facilities.json.gz has no near columns although the places file exists")
+    else:
+        lat, lon = np.array(facilities["lat"], dtype=float) / 1e5, np.array(facilities["lon"], dtype=float) / 1e5
+        exp = build_facility_places(lat, lon, places)
+        got_text = [near_text(facilities["near_places"], p, k, d) for p, k, d in zip(facilities["near_place"], facilities["near_km"], facilities["near_dir"])]
+        exp_text = [near_text(exp["near_places"], p, k, d) for p, k, d in zip(exp["near_place"], exp["near_km"], exp["near_dir"])]
+        if got_text != exp_text:
+            failures.append(f"place names: {sum(a != b for a, b in zip(got_text, exp_text))} facility names differ from an independent recount")
+    shown = {
+        "n": len(alerts),
+        "near": sorted({near_text(exported["places"], *v[:3]) for v in exported["alerts"].values()}),
+    }
+    return failures, shown
 
 
 def _fmt_count(n: int) -> str:
@@ -382,6 +441,8 @@ _PAGE_PROBE = """(async () => {
     if (colourErrors.length > 5) break;
   }
   out.colour_errors = colourErrors; out.colour_mode_default = d.state.colorMode;
+  out.alert_titles = [...document.querySelectorAll('.alert-facility')].map(e => e.textContent);
+  out.alert_near = [...document.querySelectorAll('.alert-near')].map(e => e.textContent);
   return out;
 })()"""
 
@@ -407,6 +468,18 @@ def _compare_display(shown: dict, want: dict) -> list[str]:
             failures.append(f"page (Offshore): class counts {got.get('rings')} != source {exp['rings']}")
         if not re.search(r"(offshore, active \d+ days?|offshore heat \d+ km)", (shown.get("offshore_popup") or ""), re.I):
             failures.append(f"page (Offshore): popup Why line not as specified: {(shown.get('offshore_popup') or '')[:160]!r}")
+    places = want.get("places")
+    if places is not None:
+        titles = shown.get("alert_titles") or []
+        raw = [t for t in titles if RAW_OSM_TITLE.search(t)]
+        if raw:
+            failures.append(f"page: {len(raw)} alert titles show a raw OSM tag, e.g. {raw[0]!r}")
+        near = shown.get("alert_near") or []
+        if len(near) != places["n"]:
+            failures.append(f"page: {len(near)} alerts show a place, source has {places['n']}")
+        unknown = sorted(set(near) - set(places["near"]))
+        if unknown:
+            failures.append(f"page: alert place text not in the recount, e.g. {unknown[0]!r}")
     if shown.get("colour_mode_default") != "class":
         failures.append(f"page: default colour mode is {shown.get('colour_mode_default')!r}, not 'class'")
     for message in shown.get("colour_errors") or []:
@@ -511,17 +584,22 @@ def check_page(dist: Path, timeout_s: int = PAGE_TIMEOUT_S, want: dict | None = 
 
 
 def preflight(dist: Path = SITE_DIST_DIR, meta_path: Path = MAP_POINTS_META_PATH,
-              alerts_source: Path = ALERTS_HISTORY_PATH) -> list[str]:
+              alerts_source: Path = ALERTS_HISTORY_PATH, places_path: Path = PLACES_PATH) -> list[str]:
     failures = check_points(dist) + check_alerts(dist)
     if failures:  # don't bother with the rest when the data is already known bad
         return failures
     expected = source_counts(meta_path)
     failures = check_consistency(dist, expected, alerts_source)
+    place_failures, place_want = check_places(dist, alerts_source, places_path)
+    failures += place_failures
     if failures:
         return failures
     try:
         sub_off = subtype_count(dist, AUDIT_STATE, AUDIT_SUBTYPE_OFF)
-        return check_page(dist, want=expected_display(expected, Path(dist) / "data" / "alerts_history.csv", sub_off))
+        want = expected_display(expected, Path(dist) / "data" / "alerts_history.csv", sub_off)
+        if place_want is not None:
+            want["places"] = place_want
+        return check_page(dist, want=want)
     except Exception as error:  # the check itself broke: still a reason not to deploy
         return [f"headless Chrome check failed to run: {type(error).__name__}: {error}"]
 

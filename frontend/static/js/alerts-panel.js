@@ -5,6 +5,7 @@
   "use strict";
 
   const ALERTS_URL = "data/alerts_history.csv";
+  const PLACES_URL = "data/alert_places.json.gz"; // display-only: nearest place + reworded titles per alert_id
 
   const esc = (value) =>
     String(value ?? "n/a").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,6 +32,22 @@
     if (field !== "" || row.length) { row.push(field); rows.push(row); }
     const [header, ...body] = rows;
     return body.map((cells) => Object.fromEntries(header.map((name, i) => [name, cells[i] ?? ""])));
+  }
+
+  // "Near Angul, Odisha (12 km NE)". Mirrors backend/places.py format_near; the pre-deploy check compares the two.
+  const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const nearText = ([name, state], km, dir) =>
+    `Near ${state ? `${name}, ${state}` : name} (${km} km${km > 0 && dir >= 0 ? ` ${COMPASS[dir]}` : ""})`;
+
+  async function fetchPlaces() {
+    try {
+      const response = await fetch(PLACES_URL, { cache: "no-cache" });
+      if (!response.ok) return null;
+      const stream = response.body.pipeThrough(new DecompressionStream("gzip"));
+      return JSON.parse(await new Response(stream).text());
+    } catch (error) {
+      return null; // names are display-only: the panel works without them
+    }
   }
 
   const num = (v) => (v === "" || v == null ? null : Number(v));
@@ -84,6 +101,7 @@
   const term = (key, text) => `<span class="term" tabindex="0" data-term="${key}">${text}</span>`;
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const siteName = (a) => (a.facilityName && a.facilityName !== "unnamed" ? a.facilityName : `Unnamed ${a.facility.split(" · ")[0]}`);
+  const titleOf = (a) => a.titleOverride ?? VIEW[a.type].title(a);
   const swatchLabel = (a) => (a.type === "large_fire_event" ? a.dominantClass : a.label);
 
   // What each type shows: list title, the number on the right, one detail line, and popup rows.
@@ -145,12 +163,14 @@
     const rows = [
       ["Type", `${term("candidate", "Candidate alert")}: ${esc(TYPES[a.type])}`],
       ["Date", when],
+      ...(a.near ? [["Near", esc(a.near)]] : []),
+      ...(a.rawTag ? [["OSM tag", esc(a.rawTag)]] : []),
       ...(a.type === "large_fire_event" ? [] : [["Class", a.label === "unknown" ? term("unclassified", esc(nameFor(a.label))) : esc(nameFor(a.label))]]),
       ...VIEW[a.type].rows(a),
       ["Location", `${esc(fmtSite(a))} · <a href="${esc(satellite)}" target="_blank" rel="noopener">satellite view</a>`],
     ];
     return (
-      `<div class="detection"><h2><span class="swatch" style="background:${esc(color)}"></span>${esc(VIEW[a.type].title(a))}</h2><dl>` +
+      `<div class="detection"><h2><span class="swatch" style="background:${esc(color)}"></span>${esc(titleOf(a))}</h2><dl>` +
       rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") +
       "</dl></div>"
     );
@@ -197,6 +217,17 @@
       return none;
     }
 
+    const placeData = await fetchPlaces();
+    if (placeData) {
+      for (const a of alerts) {
+        const entry = placeData.alerts[a.id];
+        if (!entry) continue;
+        const [place, km, dir, , title, rawTag] = entry;
+        a.near = nearText(placeData.places[place], km, dir);
+        a.titleOverride = title;
+        a.rawTag = rawTag;
+      }
+    }
     alerts.sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0));
     countEl.textContent = alerts.length.toLocaleString("en-US");
     if (!alerts.length) {
@@ -214,10 +245,11 @@
       item.dataset.type = a.type;
       item.innerHTML =
         `<span class="alert-top"><span class="swatch" data-label="${esc(swatchLabel(a))}" style="background:${esc(colorFor(swatchLabel(a)))}"></span>` +
-        `<span class="alert-facility">${esc(view.title(a))}</span>` +
+        `<span class="alert-facility">${esc(titleOf(a))}</span>` +
         `<span class="alert-ratio" title="${esc(view.metricHint)}">${esc(view.metric(a))}</span></span>` +
         `<span class="alert-meta"><span class="alert-badge">${esc(TYPES[a.type])}</span>${a.type === "large_fire_event" ? "" : `<span data-class-label="${esc(a.label)}">${esc(nameFor(a.label))}</span> · `}${esc(fmtDate(a))}</span>` +
-        `<span class="alert-meta">${esc(view.detail(a))}</span>`;
+        `<span class="alert-meta">${esc(view.detail(a))}</span>` +
+        (a.near ? `<span class="alert-meta alert-near">${esc(a.near)}</span>` : "");
       fragment.appendChild(item);
     });
     list.replaceChildren(fragment);
@@ -280,5 +312,5 @@
     return { alerts, recolor, select };
   }
 
-  window.AlertsPanel = { init, parseCsv };
+  window.AlertsPanel = { init, parseCsv, nearText };
 })();

@@ -484,6 +484,7 @@
       ["Type", esc(f.kinds[f.kind[i]])],
       ["Group", esc(f.groups[f.group[i]])],
       ["Source", f.sources[f.source[i]] === "OSM" ? "OpenStreetMap (a point inside the mapped outline)" : "Global Energy Monitor"],
+      ...(f.near_places ? [["Near", esc(AlertsPanel.nearText(f.near_places[f.near_place[i]], f.near_km[i], f.near_dir[i]))]] : []),
       ["Location", `${lngLat[1].toFixed(5)}, ${lngLat[0].toFixed(5)}`],
     ];
     openPopup(lngLat, `<div class="detection"><h2><span class="swatch" style="background:transparent;border:2px solid ${FACILITY_COLORS[f.group[i]]}"></span>${esc(f.name[i] ?? "Unnamed facility")}</h2><dl>` +
@@ -998,5 +999,5 @@
       if (!select(params.get("alert"))) console.warn(`alert ${params.get("alert")} not found`);
     });
   }
-  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, detectionHtml, setSubtypeActive, setColorMode, fillColor, radiusFor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
+  window.__dashboard = { map, overlay, state, months, meta, timings, update, showDetection, detailRecord, selectRegion, detectionHtml, showFacility, setSubtypeActive, setColorMode, fillColor, radiusFor, pointInfo: (i) => ({ cls: classIds[i], sub: rowSubtypes[rowIds[i]] }), N, states: stats.states };
 })();
