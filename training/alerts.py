@@ -285,6 +285,8 @@ def new_unmapped_source_alerts(batch: pd.DataFrame, store: pd.DataFrame) -> pd.D
     UNMAPPED_MAX_PRIOR_ACTIVE_DAYS before that window, and no known facility (OSM
     industrial, GEM heat/flare, coal mine, brick kiln) within UNMAPPED_NO_FACILITY_WITHIN_M.
     `store` = every stored detection plus the batch (latitude, longitude, acq_date, label, frp)."""
+    if "region" in batch.columns:  # offshore cells have no mapped facility by construction: never "unmapped"
+        batch = batch[batch["region"] != OFFSHORE_REGION]
     if batch.empty:
         return _empty()
     distances = batch.reindex(columns=list(_FACILITY_DISTANCES)).apply(pd.to_numeric, errors="coerce")

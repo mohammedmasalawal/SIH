@@ -86,8 +86,9 @@ INDIA_BOUNDARY_PATH = ROOT_DIR / "data" / "external" / "boundaries" / "india_sta
 # are kept when they are at least OFFSHORE_MIN_DISTANCE_KM beyond the India boundary, so
 # coastal slop in the boundary polygon never becomes an "offshore" detection. Offshore rows
 # skip every onshore rule (their OSM/GEM/landcover context describes land) and get one rule:
-# active on OFFSHORE_MIN_RECURRENCE+ days -> "gas flare" (label_source offshore_persistent);
-# anything else stays "unknown". The threshold is the existing gas-flare recurrence bar,
+# active on OFFSHORE_MIN_RECURRENCE+ days -> "gas flare" (label_source offshore_persistent) in
+# Mumbai High; anything else stays "unknown". "Active days" is the cell's distinct active days over
+# the whole offshore history, in the bulk rebuild and the live path alike. The threshold is the existing gas-flare recurrence bar,
 # fixed before validation and not tuned (tests/test_offshore.py pins it).
 OFFSHORE_ZONES = {
     "Mumbai High": (70.5, 18.5, 72.3, 20.5),
@@ -97,6 +98,12 @@ OFFSHORE_MIN_DISTANCE_KM = 10.0
 OFFSHORE_REGION = "offshore"  # the `region` value on offshore rows (onshore rows carry none)
 OFFSHORE_MIN_RECURRENCE = GAS_FLARE_MIN_RECURRENCE
 OFFSHORE_LABEL_SOURCE = "offshore_persistent"
+# Zones whose persistent detections are NOT labelled gas flare. KG basin: the Sentinel-2 follow-up on
+# every recurring KG cell found a hot pixel at 1 of 4 evaluable cells (the random validation draw held
+# a single KG cell), so its detections stay offshore-tagged but unknown, label_source
+# "offshore_unconfirmed". A conservative change made after seeing that follow-up, not a pre-set rule.
+OFFSHORE_UNCONFIRMED_ZONES = ("KG basin",)
+OFFSHORE_UNCONFIRMED_LABEL_SOURCE = "offshore_unconfirmed"
 # Set only after the SWIR validation (training/offshore_validation.py) met its pass rule; while
 # False, offshore rows are still ingested and shown but every one stays "unknown".
 OFFSHORE_FLARE_RULE_ADOPTED = True

@@ -6,8 +6,11 @@ Bulk mode rebuilds the whole offshore history in one file (OFFSHORE_HISTORY_PATH
 recurrence_count is the number of distinct active days of a ~375 m cell across that file's
 whole span, both directions -- the historical convention (active days within the file), but a
 year-long file rather than the 1-3 month period files the onshore data uses. Live mode
-(training/ingest_latest.py) counts a cell's active days on or before each detection within
-RECURRENCE_LOOKBACK_DAYS instead, like every live row.
+(training/ingest_latest.py) uses the SAME definition for offshore rows: distinct active days of
+the cell over every stored offshore detection plus the batch being labelled, with no look-back
+window and no earlier-only cut (this is the definition the SWIR validation checked). Two paths
+that hold the same detections therefore give a cell the same recurrence_count and label. Only
+is_anomalous stays causal (strictly earlier days), like every live row.
 
 Onshore data is never read or written here: the offshore parquets are separate files with
 the CONTRACT_COLUMNS plus region / offshore_zone / dist_offshore_km.
@@ -35,7 +38,6 @@ from backend.config import (
 from backend.ingestion.offshore import offshore_columns
 from training.build_labels import add_context_features
 from training.spatial_features import (
-    add_causal_recurrence_features,
     add_recurrence_features,
     anomaly_baselines,
     compute_is_anomalous,
@@ -108,22 +110,19 @@ def label_offshore_live(
     new_rows: pd.DataFrame,
     history: pd.DataFrame,
     *,
-    lookback_days: int | None,
     industrial_path=NATIONAL_INDUSTRIAL_CONTEXT_PATH,
     facilities_path=NATIONAL_FACILITIES_PATH,
     worldcover=NATIONAL_WORLDCOVER_DIR,
 ) -> pd.DataFrame:
-    """Live labelling: features come only from earlier detections (recurrence counts a
-    cell's active days on or before the row's date; anomaly baselines use strictly earlier
-    days), history = every stored offshore detection (latitude, longitude, acq_date, ...)."""
+    """Live labelling. recurrence_count / first_seen / last_seen come from the cell's active days
+    over history + this batch (the bulk definition, no look-back); anomaly baselines use strictly
+    earlier days. history = every stored offshore detection (latitude, longitude, acq_date, ...)."""
     labeled = _context(new_rows, industrial_path, facilities_path, worldcover)
     cols = ["latitude", "longitude", "acq_date", "acq_time", "satellite", "daynight", "frp"]
     combined = pd.concat([history[cols], labeled[cols]], ignore_index=True)
     targets = pd.Series(np.r_[np.zeros(len(history), bool), np.ones(len(labeled), bool)], index=combined.index)
     grid_lat, grid_lon = grid_keys(combined)
-    recurrence = add_causal_recurrence_features(
-        combined[["acq_date"]], grid_lat, grid_lon, targets, lookback_days=lookback_days
-    )
+    recurrence = add_recurrence_features(combined[["acq_date"]], grid_lat, grid_lon)
     baselines = anomaly_baselines(combined, grid_lat, grid_lon, targets=targets)
     batch = targets.to_numpy()
     labeled["recurrence_count"] = recurrence.loc[batch, "recurrence_count"].astype(int).to_numpy()

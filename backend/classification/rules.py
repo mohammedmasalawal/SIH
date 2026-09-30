@@ -22,6 +22,8 @@ from backend.config import (
     OFFSHORE_LABEL_SOURCE,
     OFFSHORE_MIN_RECURRENCE,
     OFFSHORE_REGION,
+    OFFSHORE_UNCONFIRMED_LABEL_SOURCE,
+    OFFSHORE_UNCONFIRMED_ZONES,
 )
 
 CLASSES = ("industrial", "gas flare", "agricultural burning", "wildfire", "unknown")
@@ -210,7 +212,9 @@ def _offshore_mask(frame: pd.DataFrame) -> pd.Series:
 def apply_offshore_rules(frame: pd.DataFrame, *, adopted: bool = OFFSHORE_FLARE_RULE_ADOPTED) -> pd.DataFrame:
     """The offshore rule: active on OFFSHORE_MIN_RECURRENCE+ days -> "gas flare" with
     label_source "offshore_persistent"; every other offshore detection stays "unknown"
-    (label_source "unknown", as for any row no rule matched).
+    (label_source "unknown", as for any row no rule matched). Rows in OFFSHORE_UNCONFIRMED_ZONES
+    (KG basin) never become gas flare: they stay "unknown" with label_source "offshore_unconfirmed",
+    whatever their persistence.
 
     Offshore rows never see the onshore rules: their OSM / GEM / WorldCover context describes
     land (an offshore cell 130 km out is "far from everything", not "in cropland"), and a
@@ -220,9 +224,14 @@ def apply_offshore_rules(frame: pd.DataFrame, *, adopted: bool = OFFSHORE_FLARE_
     """
     result = frame.copy()
     recurrence = pd.to_numeric(result["recurrence_count"], errors="coerce").fillna(0)
-    flare = (recurrence >= OFFSHORE_MIN_RECURRENCE) & adopted
+    unconfirmed = (
+        result["offshore_zone"].isin(OFFSHORE_UNCONFIRMED_ZONES)
+        if "offshore_zone" in result.columns else pd.Series(False, index=result.index)
+    )
+    flare = (recurrence >= OFFSHORE_MIN_RECURRENCE) & adopted & ~unconfirmed
     result["label"] = flare.map({True: "gas flare", False: "unknown"})
     result["label_source"] = flare.map({True: OFFSHORE_LABEL_SOURCE, False: "unknown"})
+    result.loc[unconfirmed, "label_source"] = OFFSHORE_UNCONFIRMED_LABEL_SOURCE
     return result
 
 

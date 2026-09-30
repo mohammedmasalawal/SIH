@@ -782,7 +782,7 @@
     const name = index == null ? null : stats.states[index];
     const note = $("state-validation");
     if (name == null) note.textContent = "Accuracy verified in the Jamnagar pilot, Gujarat; other states not yet validated.";
-    else if (name === OFFSHORE) note.innerHTML = '<span class="badge unvalidated">checked, small sample</span>Mumbai High and KG basin only, 10+ km beyond the India boundary. Gas flare = active on 5+ days. Sentinel-2 check: 21 of 30 sampled cells showed a hot pixel vs 0 of 15 open-sea points, but the sample held one KG basin cell.';
+    else if (name === OFFSHORE) note.innerHTML = '<span class="badge unvalidated">checked, small sample</span>Mumbai High and KG basin only, 10+ km beyond the India boundary. Mumbai High: gas flare = active on 5+ days (Sentinel-2 check: hot pixel at 21 of 30 sampled cells, 52–83%, vs 0 of 15 open-sea points, 0–20%). KG basin: shown but never labelled a flare, since a follow-up found a hot pixel at only 1 of 4 cells.';
     else if (VERIFIED_STATES.has(name)) note.innerHTML = '<span class="badge verified">verified</span>Accuracy verified in the Jamnagar pilot, Gujarat; the rest of the state and other states not yet validated.';
     else note.innerHTML = `<span class="badge unvalidated">not validated</span>Accuracy verified in the Jamnagar pilot, Gujarat; ${esc(name)} not yet validated.`;
     const outline = statesInfo.outlines.features.filter((f) => f.properties.name === name);
@@ -878,7 +878,10 @@
     const km = Math.round(d.dist_offshore_km ?? 0), days = d.recurrence_count ?? 0;
     if (d.label_source === "offshore_persistent")
       return `Persistent ${d.daynight === "D" ? "daytime" : "night-time"} heat ${km} km offshore, active ${days} day${days === 1 ? "" : "s"}`;
-    return `Offshore heat ${km} km out, active ${days} day${days === 1 ? "" : "s"}: a flare needs ${OFFSHORE_MIN_ACTIVE_DAYS}+`;
+    const active = `active ${days} day${days === 1 ? "" : "s"}`;
+    if (d.label_source === "offshore_unconfirmed")
+      return `Offshore heat ${km} km out, ${active}. KG basin flares are unconfirmed (hot pixel at 1 of 4 checked cells), so it is not labelled a flare`;
+    return `Offshore heat ${km} km out, ${active}: a flare needs ${OFFSHORE_MIN_ACTIVE_DAYS}+`;
   }
 
   function detectionHtml(d) {

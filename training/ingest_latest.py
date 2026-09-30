@@ -334,7 +334,7 @@ def run_ingest(
 
     offshore_labeled = _label_new_offshore(
         offshore_raw, start, end, offshore_history_path, live_dir,
-        lookback_days=lookback_days, industrial_path=industrial_path, facilities_path=facilities_path,
+        industrial_path=industrial_path, facilities_path=facilities_path,
         worldcover=worldcover,
     )
     summary.offshore_new = len(offshore_labeled)
@@ -382,13 +382,13 @@ def _label_new_offshore(
     offshore_history_path: Path | None,
     live_dir: Path,
     *,
-    lookback_days: int | None,
     industrial_path: Path,
     facilities_path: Path,
     worldcover: Path | None,
 ) -> pd.DataFrame:
     """Label the offshore detections in [start, end] that aren't stored yet (re-running a
-    window adds nothing), from earlier offshore detections only. Empty frame if none."""
+    window adds nothing). Recurrence is the cell's active days over the whole offshore history
+    plus the new rows (no look-back window). Empty frame if none."""
     if offshore_raw.empty:
         return pd.DataFrame()
     history = load_offshore_history(offshore_history_path, live_dir)
@@ -397,7 +397,7 @@ def _label_new_offshore(
     if new.empty:
         return pd.DataFrame()
     return label_offshore_live(
-        add_zone_columns(new), history, lookback_days=lookback_days,
+        add_zone_columns(new), history,
         industrial_path=industrial_path, facilities_path=facilities_path, worldcover=worldcover,
     )
 

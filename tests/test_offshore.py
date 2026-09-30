@@ -17,6 +17,7 @@ from backend.config import (
     OFFSHORE_LABEL_SOURCE,
     OFFSHORE_MIN_DISTANCE_KM,
     OFFSHORE_MIN_RECURRENCE,
+    OFFSHORE_UNCONFIRMED_ZONES,
     OFFSHORE_ZONES,
     ROOT_DIR,
 )
@@ -142,6 +143,16 @@ def test_offshore_rule_flare_at_five_days_unknown_below():
     assert labeled["label_source"].tolist() == ["unknown", "unknown", *[OFFSHORE_LABEL_SOURCE] * 3]
 
 
+def test_kg_basin_is_shown_but_never_a_flare():
+    frame = _offshore_rows([1, 5, 122, 5, 122]).assign(
+        offshore_zone=["KG basin", "KG basin", "KG basin", "Mumbai High", "Mumbai High"])
+    labeled = apply_rules(frame)
+    assert labeled["label"].tolist() == ["unknown", "unknown", "unknown", "gas flare", "gas flare"]
+    assert labeled["label_source"].tolist() == [
+        "offshore_unconfirmed", "offshore_unconfirmed", "offshore_unconfirmed", OFFSHORE_LABEL_SOURCE, OFFSHORE_LABEL_SOURCE]
+    assert OFFSHORE_UNCONFIRMED_ZONES == ("KG basin",)
+
+
 def test_offshore_rows_never_see_onshore_rules():
     # recurrence 3 inside an OSM industrial polygon on cropland: onshore this would be labelled;
     # offshore it is just a 3-day detection
@@ -253,19 +264,20 @@ def test_live_ingest_leaves_onshore_partition_and_alerts_byte_identical(tmp_path
     assert len(partition) == 9 and (partition["region"] == "offshore").all()
     by_day = partition.sort_values("acq_date")
     flare = by_day[by_day["latitude"] == MUMBAI_HIGH[1]]
-    # causal: active-day count on or before each day, so the label switches on at the 5th day
-    assert flare["recurrence_count"].tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert flare["label"].tolist() == ["unknown"] * 4 + ["gas flare"] * 4
-    assert set(flare["label_source"]) == {"unknown", OFFSHORE_LABEL_SOURCE}
+    # whole-history count (history + batch): every night of the cell reads 8, so every one is a flare
+    assert flare["recurrence_count"].tolist() == [8] * 8
+    assert flare["label"].tolist() == ["gas flare"] * 8
+    assert set(flare["label_source"]) == {OFFSHORE_LABEL_SOURCE}
     assert partition[partition["latitude"] == 19.9]["label"].tolist() == ["unknown"]
     assert set(partition["offshore_zone"]) == {"Mumbai High"} and (partition["dist_offshore_km"] > 10).all()
-    assert summary.offshore_new == 9 and summary.offshore_label_mix == {"unknown": 5, "gas flare": 4}
+    assert summary.offshore_new == 9 and summary.offshore_label_mix == {"gas flare": 8, "unknown": 1}
 
-    # alerts: the offshore cell raises its own, and every onshore alert is exactly what it was
+    # alerts: every onshore alert is exactly what it was, and the new offshore cell (5+ days, no facility
+    # anywhere near) raises no new_unmapped_source alert
     alerts = pd.read_csv(mixed_live / "alerts_history.csv")
     plain_alerts = pd.read_csv(plain_live / "alerts_history.csv")
     at_sea = zone_of(alerts["longitude"], alerts["latitude"]).notna()
-    assert at_sea.any()
+    assert not (at_sea & (alerts["alert_type"] == "new_unmapped_source")).any()
     pd.testing.assert_frame_equal(alerts[~at_sea].reset_index(drop=True), plain_alerts.reset_index(drop=True), check_dtype=False)
 
 
@@ -280,6 +292,59 @@ def test_rerunning_a_window_adds_no_offshore_rows(tmp_path, monkeypatch, coast):
     assert summary.offshore_new == 0 and _digest(path) == first
 
 
+def test_offshore_cells_never_raise_new_unmapped_source():
+    from training.alerts import new_unmapped_source_alerts
+
+    days = [f"2026-09-{d:02d}" for d in range(1, 9)]
+    def cell(lat, lon, **extra):
+        return pd.DataFrame({"latitude": lat, "longitude": lon, "acq_date": days, "acq_time": "0130", "satellite": "N",
+                             "daynight": "N", "frp": 3.0, "label": "unknown", **extra})
+    onshore = cell(22.90, 70.90)  # far from any facility: an unmapped source that has started burning repeatedly
+    offshore = cell(19.4, 71.3, region="offshore")
+    store = pd.concat([onshore, offshore], ignore_index=True)
+    batch = store.assign(dist_to_industrial_m=90_000.0)
+    alerts = new_unmapped_source_alerts(batch, store)
+    assert len(alerts) == 1 and alerts["latitude"].iloc[0] == pytest.approx(22.90, abs=0.01)
+
+
+# --- one definition of recurrence, in the bulk and the live path -----------------------------------------
+
+def test_bulk_and_live_paths_give_the_same_cell_the_same_count_and_label(tmp_path, monkeypatch, coast):
+    monkeypatch.setattr(offshore_module, "INDIA_BOUNDARY_PATH", coast)
+    from training.build_offshore import label_offshore_live
+
+    paths = dict(industrial_path=SAMPLE / "industrial_sample.geojson", facilities_path=SAMPLE / "facilities_sample.geojson",
+                 worldcover=None)
+    # a Mumbai High cell active on 9 scattered days over 8 months, a 3-day cell, and a 9-day KG basin cell
+    spread = ["2025-10-02", "2025-11-20", "2025-12-25", "2026-02-03", "2026-03-15", "2026-04-09", "2026-05-30", "2026-06-11", "2026-09-04"]
+    rows = [_raw(MUMBAI_HIGH[1], MUMBAI_HIGH[0], d, region="offshore") for d in spread]
+    rows += [_raw(19.9, 70.9, d, region="offshore") for d in spread[:3]]
+    rows += [_raw(KG_BASIN[1], KG_BASIN[0], d, region="offshore") for d in spread]
+    everything = add_zone_columns(pd.DataFrame(rows))
+    bulk = label_offshore_history(everything, **paths)
+
+    # live: everything before September is already stored, September's rows are the batch
+    stored = bulk[bulk["acq_date"] < "2026-09-01"]
+    batch = everything[everything["acq_date"] >= "2026-09-01"].reset_index(drop=True)
+    live = label_offshore_live(batch, stored, **paths)
+
+    key = ["latitude", "longitude", "acq_date"]
+    same = live.merge(bulk, on=key, suffixes=("_live", "_bulk"))
+    assert len(same) == len(live) == 2  # the two September rows
+    for column in ("recurrence_count", "first_seen", "last_seen", "label", "label_source"):
+        assert (same[f"{column}_live"] == same[f"{column}_bulk"]).all(), column
+    mumbai = same[same["latitude"] == MUMBAI_HIGH[1]].iloc[0]
+    assert mumbai["recurrence_count_live"] == 9 and mumbai["label_live"] == "gas flare"  # 9 scattered days: a flare in both
+    kg = same[same["latitude"] == KG_BASIN[1]].iloc[0]
+    assert kg["recurrence_count_live"] == 9 and kg["label_live"] == "unknown" and kg["label_source_live"] == "offshore_unconfirmed"
+
+    # and a whole live batch (no history at all) labels every row exactly as the bulk build does
+    live_all = label_offshore_live(everything, everything.iloc[0:0].assign(acq_time="", satellite="", daynight="", frp=0.0), **paths)
+    merged = live_all.merge(bulk, on=key, suffixes=("_live", "_bulk"))
+    assert len(merged) == len(bulk) and (merged["label_live"] == merged["label_bulk"]).all()
+    assert (merged["recurrence_count_live"] == merged["recurrence_count_bulk"]).all()
+
+
 # --- the offshore build and the landcover lookup over open sea --------------------------------------
 
 def test_bulk_history_counts_active_days_over_the_whole_file(tmp_path, monkeypatch, coast):
@@ -291,7 +356,7 @@ def test_bulk_history_counts_active_days_over_the_whole_file(tmp_path, monkeypat
         facilities_path=SAMPLE / "facilities_sample.geojson", worldcover=None,
     )
     flare = labeled[labeled["latitude"] == MUMBAI_HIGH[1]]
-    assert (flare["recurrence_count"] == 6).all() and (flare["label"] == "gas flare").all()
+    assert (flare["recurrence_count"] == 6).all() and (flare["label"] == "gas flare").all()  # Mumbai High
     assert labeled[labeled["latitude"] == 19.9]["label"].tolist() == ["unknown"]
     assert labeled["landcover_class"].isna().all()  # never fabricated over open sea
     assert list(labeled.columns) == OFFSHORE_COLUMNS
