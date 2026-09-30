@@ -26,8 +26,12 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import requests
+
+from backend.config import OFFSHORE_REGION
+from backend.ingestion.offshore import is_offshore
 
 API_ROOT = "https://firms.modaps.eosdis.nasa.gov/api"
 DEFAULT_SOURCE = "VIIRS_NOAA20_NRT"
@@ -192,7 +196,7 @@ def _resolve_segments(
     return segments
 
 
-def _clip_to_boundary(frame: pd.DataFrame, boundary_path: str | Path) -> pd.DataFrame:
+def _clip_to_boundary(frame: pd.DataFrame, boundary_path: str | Path, *, keep_offshore: bool = False) -> pd.DataFrame:
     """Keep only rows whose (longitude, latitude) falls inside the dissolved
     polygon(s) at boundary_path (a GeoParquet, unioned here if it has more than one
     row -- see data/external/boundaries/india_states.parquet, 36 India state/UT
@@ -200,6 +204,11 @@ def _clip_to_boundary(frame: pd.DataFrame, boundary_path: str | Path) -> pd.Data
     no other shape) -- for INDIA_BBOX specifically this also catches real fires in
     Myanmar, Sri Lanka, and Pakistan (47% of one uncleared one-month pull); this is
     what actually restricts detections to the country's real shape, after the fact.
+
+    keep_offshore=True also keeps detections in the offshore zones (backend.config.
+    OFFSHORE_ZONES) that are OFFSHORE_MIN_DISTANCE_KM+ beyond the boundary, and adds a
+    `region` column ("offshore" for those, "onshore" for everything else). The onshore
+    rows are exactly the rows keep_offshore=False keeps, in the same order.
     """
     boundary = gpd.read_parquet(boundary_path)
     boundary_union = boundary.geometry.union_all()
@@ -207,7 +216,12 @@ def _clip_to_boundary(frame: pd.DataFrame, boundary_path: str | Path) -> pd.Data
         frame, geometry=gpd.points_from_xy(frame["longitude"], frame["latitude"]), crs="EPSG:4326"
     )
     inside = points.geometry.within(boundary_union).to_numpy()
-    return frame[inside].reset_index(drop=True)
+    if not keep_offshore:
+        return frame[inside].reset_index(drop=True)
+    offshore = is_offshore(frame, boundary_path).to_numpy() & ~inside
+    kept = frame[inside | offshore].copy()
+    kept["region"] = np.where(offshore[inside | offshore], OFFSHORE_REGION, "onshore")
+    return kept.reset_index(drop=True)
 
 
 def _finalize(
@@ -217,6 +231,7 @@ def _finalize(
     output_path: str | Path,
     *,
     clip_boundary: str | Path | None = None,
+    keep_offshore: bool = False,
 ) -> pd.DataFrame:
     combined = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     validate_firms_columns(combined)
@@ -226,7 +241,7 @@ def _finalize(
     sort_cols = [c for c in ("acq_date", "acq_time", "satellite") if c in combined.columns]
     combined = combined.drop_duplicates().sort_values(sort_cols).reset_index(drop=True)
     if clip_boundary is not None:
-        combined = _clip_to_boundary(combined, clip_boundary)
+        combined = _clip_to_boundary(combined, clip_boundary, keep_offshore=keep_offshore)
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.suffix == ".parquet":
@@ -308,6 +323,7 @@ def fetch_firms_multi(
     timeout_seconds: int = 60,
     chunk_days: int = 5,
     clip_boundary: str | Path | None = None,
+    keep_offshore: bool = False,
     satellite_sources: dict[str, tuple[str, ...]] = SATELLITE_SOURCES,
 ) -> pd.DataFrame:
     """Fetch and merge all three VIIRS satellites over [start_date, end_date] for one bbox (area API).
@@ -321,7 +337,8 @@ def fetch_firms_multi(
     INDIA_BBOX is a loose rectangle that also catches real fires in Myanmar, Sri
     Lanka, and Pakistan (47% of an unclipped one-month pull, in practice) --
     clip_boundary is what actually restricts detections to India's real shape.
-    satellite_sources picks which FIRMS sources may serve each satellite, in
+    keep_offshore additionally keeps the offshore-zone detections (see _clip_to_boundary),
+    tagged region="offshore". satellite_sources picks which FIRMS sources may serve each satellite, in
     preference order (default SP-then-NRT; NRT_SATELLITE_SOURCES for live pulls).
     """
     if end_date < start_date:
@@ -351,7 +368,7 @@ def fetch_firms_multi(
     if not frames:
         raise RuntimeError("No FIRMS source covers any part of the requested date range")
 
-    combined = _finalize(frames, start_date, end_date, output_path, clip_boundary=clip_boundary)
+    combined = _finalize(frames, start_date, end_date, output_path, clip_boundary=clip_boundary, keep_offshore=keep_offshore)
     if gaps:
         print("Coverage gaps (satellite unavailable for part of the requested range):")
         for gap in gaps:

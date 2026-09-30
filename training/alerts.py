@@ -41,6 +41,7 @@ from backend.config import (
     LARGE_FIRE_RADIUS_M,
     NATIONAL_PROJECTED_CRS,
     NEIGHBOURHOOD_RADIUS_CELLS,
+    OFFSHORE_REGION,
     UNMAPPED_MAX_PRIOR_ACTIVE_DAYS,
     UNMAPPED_MIN_ACTIVE_DAYS,
     UNMAPPED_NO_FACILITY_WITHIN_M,
@@ -105,7 +106,11 @@ def _empty() -> pd.DataFrame:
 # --- industrial_anomaly (unchanged selection and fields) -----------------------------
 
 def _site_evidence(row: pd.Series) -> tuple[str, float | None]:
-    """The facility that makes this an industrial/flare site, and its distance."""
+    """The facility that makes this an industrial/flare site, and its distance. An offshore
+    flare has none (the nearest GEM point is tens of km away and says nothing about it):
+    the evidence is the persistence itself, in the zone it sits in."""
+    if row.get("region") == OFFSHORE_REGION:
+        return f"Offshore flare · {row.get('offshore_zone') or 'offshore'}", None
     flare_type = _text(row.get("nearest_flare_facility_type")) or "flare-capable facility"
     if row["label"] == "gas flare":
         return flare_type, row.get("dist_to_flare_capable_m")
