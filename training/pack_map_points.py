@@ -40,6 +40,8 @@ from backend.config import (
     MAP_POINTS_META_PATH,
     MAP_POINTS_PATH,
     NATIONAL_LABELED_PARQUETS,
+    OFFSHORE_HISTORY_PATH,
+    OFFSHORE_LIVE_PREFIX,
     ROOT_DIR,
 )
 
@@ -54,12 +56,18 @@ _LAYOUT = (  # name, dtype, values per row -- order keeps every offset aligned
 )
 
 
-def map_source_parquets(live_dir: Path = LIVE_DIR, history_paths=NATIONAL_LABELED_PARQUETS) -> list[Path]:
-    """Historical national files, then the live monthly partitions in month order.
-    Live partitions sort after the historical files, so appending live data never
-    renumbers a historical row id."""
+def map_source_parquets(
+    live_dir: Path = LIVE_DIR, history_paths=NATIONAL_LABELED_PARQUETS, offshore_history: Path | None = None
+) -> list[Path]:
+    """Historical national files, then the live monthly partitions in month order, then the
+    offshore rows (their historical rebuild, if given and present, then the offshore live
+    months). Live partitions sort after the historical files, so appending live data never
+    renumbers a historical row id; the offshore rows go last, so only they move when a live
+    month is appended."""
     live = sorted(Path(live_dir).glob(f"{LIVE_PARTITION_PREFIX}*.parquet"))
-    return [*history_paths, *live]
+    offshore = [offshore_history] if offshore_history is not None and Path(offshore_history).exists() else []
+    offshore += sorted(Path(live_dir).glob(f"{OFFSHORE_LIVE_PREFIX}*.parquet"))
+    return [*history_paths, *live, *offshore]
 
 
 def _replace(tmp: Path, final: Path, attempts: int = 20) -> None:
@@ -167,6 +175,6 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    meta = pack(args.parquets or map_source_parquets(), args.out, args.meta)
+    meta = pack(args.parquets or map_source_parquets(offshore_history=OFFSHORE_HISTORY_PATH), args.out, args.meta)
     print(f"Packed {meta['count']:,} detections -> {args.out} ({meta['bytes'] / 1e6:.1f} MB), "
           f"{meta['base_date']}..{meta['max_date']}")

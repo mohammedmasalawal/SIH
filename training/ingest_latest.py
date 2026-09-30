@@ -52,6 +52,9 @@ from backend.config import (
     NATIONAL_INDUSTRIAL_CONTEXT_PATH,
     NATIONAL_LABELED_PARQUETS,
     NATIONAL_WORLDCOVER_DIR,
+    OFFSHORE_HISTORY_PATH,
+    OFFSHORE_LIVE_PREFIX,
+    OFFSHORE_REGION,
     RECURRENCE_LOOKBACK_DAYS,
 )
 from backend.ingestion.firms_client import INDIA_BBOX, NRT_SATELLITE_SOURCES, _env, fetch_firms_multi
@@ -65,6 +68,7 @@ from training.alerts import (
     read_alert_history,
 )
 from training.build_labels import add_context_features
+from training.build_offshore import OFFSHORE_COLUMNS, add_zone_columns, label_offshore_live
 from training.pack_map_points import map_source_parquets, pack
 from training.spatial_features import add_causal_recurrence_features, anomaly_baselines, grid_keys
 
@@ -77,10 +81,12 @@ Fetcher = Callable[[date, date, Path], pd.DataFrame]
 
 
 def fetch_nrt_india(start: date, end: date, raw_path: Path) -> pd.DataFrame:
-    """All three VIIRS satellites, NRT sources only, clipped to India's boundary."""
+    """All three VIIRS satellites, NRT sources only, clipped to India's boundary -- except
+    the offshore zones (backend.config.OFFSHORE_ZONES), whose detections are kept and tagged
+    region="offshore"."""
     return fetch_firms_multi(
         INDIA_BBOX, start, end, raw_path,
-        satellite_sources=NRT_SATELLITE_SOURCES, clip_boundary=INDIA_BOUNDARY_PATH,
+        satellite_sources=NRT_SATELLITE_SOURCES, clip_boundary=INDIA_BOUNDARY_PATH, keep_offshore=True,
     )
 
 
@@ -90,6 +96,25 @@ def live_partition_path(live_dir: Path, month: str) -> Path:
 
 def _live_partitions(live_dir: Path) -> list[Path]:
     return sorted(Path(live_dir).glob(f"{LIVE_PARTITION_PREFIX}*.parquet"))
+
+
+def offshore_partition_path(live_dir: Path, month: str) -> Path:
+    return Path(live_dir) / f"{OFFSHORE_LIVE_PREFIX}{month}.parquet"
+
+
+def _offshore_partitions(live_dir: Path) -> list[Path]:
+    return sorted(Path(live_dir).glob(f"{OFFSHORE_LIVE_PREFIX}*.parquet"))
+
+
+def load_offshore_history(offshore_history_path: Path | None, live_dir: Path) -> pd.DataFrame:
+    """Every stored offshore detection: the historical rebuild (if there is one) plus the
+    offshore live partitions."""
+    paths = [p for p in [offshore_history_path, *_offshore_partitions(live_dir)] if p is not None and Path(p).exists()]
+    if not paths:
+        return pd.DataFrame(columns=_STORE_COLUMNS)
+    history = pd.concat([pd.read_parquet(p, columns=_STORE_COLUMNS) for p in paths], ignore_index=True)
+    history["acq_date"] = history["acq_date"].astype(str).str[:10]
+    return history
 
 
 def load_history(history_paths: list[Path], live_dir: Path) -> pd.DataFrame:
@@ -170,6 +195,26 @@ def append_to_partitions(labeled: pd.DataFrame, live_dir: Path) -> dict[str, int
     return added
 
 
+def append_offshore_to_partitions(labeled: pd.DataFrame, live_dir: Path) -> dict[str, int]:
+    """append_to_partitions for offshore rows: their own monthly files (OFFSHORE_LIVE_PREFIX),
+    so the onshore live partitions are never touched by an offshore run."""
+    added = {}
+    for month, rows in labeled.groupby(labeled["acq_date"].str[:7]):
+        path = offshore_partition_path(live_dir, month)
+        new_rows = rows[OFFSHORE_COLUMNS]
+        if path.exists():
+            existing = pd.read_parquet(path)
+            new_rows = new_rows[~detection_keys(new_rows).isin(set(detection_keys(existing)))]
+            combined = pd.concat([existing, new_rows], ignore_index=True)
+        else:
+            combined = new_rows.reset_index(drop=True)
+        if new_rows.empty:
+            continue
+        _write_atomic(combined, path)
+        added[month] = len(new_rows)
+    return added
+
+
 @dataclass
 class RunSummary:
     start: date
@@ -181,6 +226,8 @@ class RunSummary:
     alerts: int = 0
     alerts_by_type: dict[str, int] = field(default_factory=dict)
     partitions: dict[str, int] = field(default_factory=dict)
+    offshore_new: int = 0
+    offshore_label_mix: dict[str, int] = field(default_factory=dict)
     map_repacked: bool = False
     map_points: int | None = None
     seconds: float = 0.0
@@ -193,6 +240,9 @@ class RunSummary:
         ]
         for label, n in sorted(self.label_mix.items(), key=lambda kv: -kv[1]):
             lines.append(f"    {label:<22}{n:>8,}")
+        if self.offshore_new:
+            mix = ", ".join(f"{label} {n:,}" for label, n in sorted(self.offshore_label_mix.items(), key=lambda kv: -kv[1]))
+            lines.append(f"  offshore (Mumbai High / KG basin): {self.offshore_new:,} new detections ({mix})")
         lines.append(f"  new alerts: {self.alerts:,}")
         for alert_type in ALERT_TYPES:
             lines.append(f"    {alert_type:<31}{self.alerts_by_type.get(alert_type, 0):>6,}")
@@ -221,10 +271,19 @@ def run_ingest(
     map_points_path: Path = MAP_POINTS_PATH,
     map_meta_path: Path = MAP_POINTS_META_PATH,
     today: date | None = None,
+    offshore_history_path: Path | None | str = "default",
 ) -> tuple[RunSummary, pd.DataFrame]:
-    """Returns the run summary and the newly labeled rows (with baseline columns)."""
+    """Returns the run summary and the newly labeled ONSHORE rows (with baseline columns).
+    Offshore rows (region == "offshore" on the fetched frame) are labelled and stored
+    separately -- see _label_new_offshore -- and never enter the onshore steps below.
+
+    offshore_history_path: the historical offshore rebuild. Default: OFFSHORE_HISTORY_PATH,
+    unless the caller overrides history_paths (then none, so a test's private history is
+    never mixed with the real offshore file)."""
     started = time.perf_counter()
     today = today or datetime.now(timezone.utc).date()
+    if isinstance(offshore_history_path, str):
+        offshore_history_path = OFFSHORE_HISTORY_PATH if history_paths is None else None
     history_paths = list(NATIONAL_LABELED_PARQUETS if history_paths is None else history_paths)
     live_dir = Path(live_dir)
     summary = RunSummary(start=start, end=end)
@@ -232,6 +291,9 @@ def run_ingest(
     raw = _normalise_raw(fetch(start, end, live_dir / "raw" / "firms_nrt_latest.parquet"))
     raw = raw[(raw["acq_date"] >= start.isoformat()) & (raw["acq_date"] <= end.isoformat())]
     raw = raw.loc[~detection_keys(raw).duplicated()].reset_index(drop=True)
+    offshore_raw = raw[raw["region"] == OFFSHORE_REGION].reset_index(drop=True) if "region" in raw else raw.iloc[0:0]
+    if "region" in raw:  # onshore steps below see exactly what they saw before offshore existed
+        raw = raw[raw["region"] != OFFSHORE_REGION].drop(columns="region").reset_index(drop=True)
     summary.fetched = len(raw)
 
     history = load_history(history_paths, live_dir)
@@ -270,12 +332,28 @@ def run_ingest(
                 labeled[column] = None
         summary.label_mix = labeled["label"].value_counts().to_dict()
 
+    offshore_labeled = _label_new_offshore(
+        offshore_raw, start, end, offshore_history_path, live_dir,
+        industrial_path=industrial_path, facilities_path=facilities_path,
+        worldcover=worldcover,
+    )
+    summary.offshore_new = len(offshore_labeled)
+    if not offshore_labeled.empty:
+        summary.offshore_label_mix = offshore_labeled["label"].value_counts().to_dict()
+
     # Alerts before the store: if a crash lands between the two, the re-run still
     # sees these rows as new and rewrites the alerts. Large-fire events are judged on
     # every complete day in the window, even when this run brought nothing new.
+    # Offshore detections are evaluated alongside (batch and store) but only ever add rows:
+    # they sit 10+ km from anything onshore, so no onshore alert can change.
+    offshore_store = load_offshore_history(offshore_history_path, live_dir)
     store = pd.concat([history, labeled[_STORE_COLUMNS]], ignore_index=True) if not labeled.empty else history
+    if not offshore_store.empty or not offshore_labeled.empty:
+        parts = [store, offshore_store] + ([offshore_labeled[_STORE_COLUMNS]] if not offshore_labeled.empty else [])
+        store = pd.concat(parts, ignore_index=True)
+    alert_batch = pd.concat([labeled, offshore_labeled], ignore_index=True) if not offshore_labeled.empty else labeled
     alerts = build_alerts(
-        labeled, store, load_infrastructure_sites(industrial_path, facilities_path), complete_days(start, end, today)
+        alert_batch, store, load_infrastructure_sites(industrial_path, facilities_path), complete_days(start, end, today)
     )
     history_path = Path(alerts_history_path) if alerts_history_path else Path(alerts_path).with_name("alerts_history.csv")
     _, new_alerts = publish_alerts(alerts, Path(alerts_path), history_path)
@@ -284,13 +362,44 @@ def run_ingest(
 
     if not labeled.empty:
         summary.partitions = append_to_partitions(labeled, live_dir)
+    if not offshore_labeled.empty:
+        append_offshore_to_partitions(offshore_labeled, live_dir)
 
     if repack_map and _map_is_stale(live_dir, Path(map_meta_path)):
-        meta = pack(map_source_parquets(live_dir, history_paths), Path(map_points_path), Path(map_meta_path))
+        meta = pack(
+            map_source_parquets(live_dir, history_paths, offshore_history_path), Path(map_points_path), Path(map_meta_path)
+        )
         summary.map_repacked, summary.map_points = True, meta["count"]
 
     summary.seconds = time.perf_counter() - started
     return summary, labeled
+
+
+def _label_new_offshore(
+    offshore_raw: pd.DataFrame,
+    start: date,
+    end: date,
+    offshore_history_path: Path | None,
+    live_dir: Path,
+    *,
+    industrial_path: Path,
+    facilities_path: Path,
+    worldcover: Path | None,
+) -> pd.DataFrame:
+    """Label the offshore detections in [start, end] that aren't stored yet (re-running a
+    window adds nothing). Recurrence is the cell's active days over the whole offshore history
+    plus the new rows (no look-back window). Empty frame if none."""
+    if offshore_raw.empty:
+        return pd.DataFrame()
+    history = load_offshore_history(offshore_history_path, live_dir)
+    stored = detection_keys(history[history["acq_date"].between(start.isoformat(), end.isoformat())])
+    new = offshore_raw[~detection_keys(offshore_raw).isin(set(stored))].reset_index(drop=True)
+    if new.empty:
+        return pd.DataFrame()
+    return label_offshore_live(
+        add_zone_columns(new), history,
+        industrial_path=industrial_path, facilities_path=facilities_path, worldcover=worldcover,
+    )
 
 
 def reevaluate_alerts(
@@ -303,6 +412,7 @@ def reevaluate_alerts(
     facilities_path: Path = NATIONAL_FACILITIES_PATH,
     alerts_path: Path = ALERTS_LATEST_PATH,
     today: date | None = None,
+    offshore_history_path: Path | None | str = "default",
 ) -> pd.DataFrame:
     """Evaluate every alert type over live detections already stored for [start, end]
     -- after a threshold or alert-type change, without re-fetching anything. Anomaly
@@ -310,13 +420,24 @@ def reevaluate_alerts(
     computed. The history's alerts dated inside the window are replaced by this
     evaluation (see publish_alerts); alerts_latest.csv gets every alert evaluated."""
     today = today or datetime.now(timezone.utc).date()
+    if isinstance(offshore_history_path, str):
+        offshore_history_path = OFFSHORE_HISTORY_PATH if history_paths is None else None
     history_paths = list(NATIONAL_LABELED_PARQUETS if history_paths is None else history_paths)
     partitions = _live_partitions(live_dir)
     if not partitions:
         raise SystemExit(f"no live partitions in {live_dir}")
-    live = pd.concat([pd.read_parquet(p) for p in partitions], ignore_index=True)
+    offshore_live = [pd.read_parquet(p) for p in _offshore_partitions(live_dir)]
+    live = pd.concat([pd.read_parquet(p) for p in partitions] + offshore_live, ignore_index=True)
     live["acq_date"] = live["acq_date"].astype(str).str[:10]
-    historical = pd.concat([pd.read_parquet(p, columns=_STORE_COLUMNS) for p in history_paths], ignore_index=True)
+    offshore_history = (
+        pd.read_parquet(offshore_history_path, columns=_STORE_COLUMNS)
+        if offshore_history_path is not None and Path(offshore_history_path).exists()
+        else pd.DataFrame(columns=_STORE_COLUMNS)
+    )
+    offshore_history["acq_date"] = offshore_history["acq_date"].astype(str).str[:10]
+    historical = pd.concat(
+        [pd.read_parquet(p, columns=_STORE_COLUMNS) for p in history_paths] + [offshore_history], ignore_index=True
+    )
     historical["acq_date"] = historical["acq_date"].astype(str).str[:10]
 
     in_window = live["acq_date"].between(start.isoformat(), end.isoformat()).to_numpy()
@@ -336,7 +457,7 @@ def reevaluate_alerts(
 
 
 def _map_is_stale(live_dir: Path, meta_path: Path) -> bool:
-    partitions = _live_partitions(live_dir)
+    partitions = [*_live_partitions(live_dir), *_offshore_partitions(live_dir)]
     if not partitions:
         return False
     if not meta_path.exists():

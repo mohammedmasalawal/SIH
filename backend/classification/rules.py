@@ -18,6 +18,12 @@ from backend.config import (
     INDUSTRIAL_POLYGON_TOLERANCE_M,
     NATURAL_FIRE_MIN_DIST_FROM_INDUSTRIAL_M,
     NATURAL_LANDCOVER_CODES,
+    OFFSHORE_FLARE_RULE_ADOPTED,
+    OFFSHORE_LABEL_SOURCE,
+    OFFSHORE_MIN_RECURRENCE,
+    OFFSHORE_REGION,
+    OFFSHORE_UNCONFIRMED_LABEL_SOURCE,
+    OFFSHORE_UNCONFIRMED_ZONES,
 )
 
 CLASSES = ("industrial", "gas flare", "agricultural burning", "wildfire", "unknown")
@@ -197,6 +203,48 @@ def classify(row: pd.Series) -> str:
     return matched[0] if len(matched) == 1 else "unknown"
 
 
+def _offshore_mask(frame: pd.DataFrame) -> pd.Series:
+    if "region" not in frame.columns:
+        return pd.Series(False, index=frame.index)
+    return (frame["region"] == OFFSHORE_REGION).fillna(False).astype(bool)
+
+
+def apply_offshore_rules(frame: pd.DataFrame, *, adopted: bool = OFFSHORE_FLARE_RULE_ADOPTED) -> pd.DataFrame:
+    """The offshore rule: active on OFFSHORE_MIN_RECURRENCE+ days -> "gas flare" with
+    label_source "offshore_persistent"; every other offshore detection stays "unknown"
+    (label_source "unknown", as for any row no rule matched). Rows in OFFSHORE_UNCONFIRMED_ZONES
+    (KG basin) never become gas flare: they stay "unknown" with label_source "offshore_unconfirmed",
+    whatever their persistence.
+
+    Offshore rows never see the onshore rules: their OSM / GEM / WorldCover context describes
+    land (an offshore cell 130 km out is "far from everything", not "in cropland"), and a
+    fixed-threshold rule on persistence is the whole claim -- see backend/config.py.
+    daynight, FRP and every context distance are deliberately not inputs. `adopted=False`
+    (OFFSHORE_FLARE_RULE_ADOPTED) keeps every offshore row unknown.
+    """
+    result = frame.copy()
+    recurrence = pd.to_numeric(result["recurrence_count"], errors="coerce").fillna(0)
+    unconfirmed = (
+        result["offshore_zone"].isin(OFFSHORE_UNCONFIRMED_ZONES)
+        if "offshore_zone" in result.columns else pd.Series(False, index=result.index)
+    )
+    flare = (recurrence >= OFFSHORE_MIN_RECURRENCE) & adopted & ~unconfirmed
+    result["label"] = flare.map({True: "gas flare", False: "unknown"})
+    result["label_source"] = flare.map({True: OFFSHORE_LABEL_SOURCE, False: "unknown"})
+    result.loc[unconfirmed, "label_source"] = OFFSHORE_UNCONFIRMED_LABEL_SOURCE
+    return result
+
+
+def _apply_onshore_rules(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    matched = result.apply(_matched_labels, axis=1)
+    result["label"] = matched.map(lambda labels: labels[0] if len(labels) == 1 else "unknown")
+    result["label_source"] = matched.map(
+        lambda labels: "rule" if len(labels) == 1 else ("conflict" if len(labels) > 1 else "unknown")
+    )
+    return result
+
+
 def apply_rules(frame: pd.DataFrame) -> pd.DataFrame:
     """label_source distinguishes *why* a row is unknown: "conflict" means more than
     one rule matched; plain "unknown" means no rule matched at all. is_gas_flare and
@@ -204,11 +252,20 @@ def apply_rules(frame: pd.DataFrame) -> pd.DataFrame:
     the main remaining source of "conflict" is is_industrial's recurrence==1 path
     overlapping with is_agricultural_burning on a cropland-landcover row with no
     dist_to_industrial_m.
+
+    Rows with region == "offshore" get apply_offshore_rules instead. A frame with none is
+    labelled by exactly the onshore code (_apply_onshore_rules), and in a mixed frame the
+    onshore rows go through it unchanged -- so no onshore label can depend on offshore rows
+    (tests/test_offshore.py checks the label columns byte for byte).
     """
+    offshore = _offshore_mask(frame)
+    if not offshore.any():
+        return _apply_onshore_rules(frame)
+    parts = []
+    if (~offshore).any():
+        parts.append(_apply_onshore_rules(frame[~offshore])[["label", "label_source"]])
+    parts.append(apply_offshore_rules(frame[offshore])[["label", "label_source"]])
+    labels = pd.concat(parts).reindex(frame.index)
     result = frame.copy()
-    matched = result.apply(_matched_labels, axis=1)
-    result["label"] = matched.map(lambda labels: labels[0] if len(labels) == 1 else "unknown")
-    result["label_source"] = matched.map(
-        lambda labels: "rule" if len(labels) == 1 else ("conflict" if len(labels) > 1 else "unknown")
-    )
+    result["label"], result["label_source"] = labels["label"], labels["label_source"]
     return result

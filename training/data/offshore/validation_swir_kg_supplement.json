@@ -1,0 +1,195 @@
+{
+ "cells": [
+  {
+   "id": "K01",
+   "lat": 16.37067888888889,
+   "lon": 82.32123444444444,
+   "anchor_dates": [
+    "2025-11-09",
+    "2025-11-14",
+    "2026-08-11"
+   ],
+   "active_days": 5,
+   "n_clear_scenes": 2,
+   "evaluable": true,
+   "hit": false,
+   "scenes": [
+    {
+     "date": "2025-11-10",
+     "anchor": "2025-11-09",
+     "clear_frac": 0.958,
+     "hot_found": false,
+     "hot_dist_m": null,
+     "hot_b12": null,
+     "max_b12": 0.113
+    },
+    {
+     "date": "2025-11-15",
+     "anchor": "2025-11-14",
+     "clear_frac": 1.0,
+     "hot_found": false,
+     "hot_dist_m": null,
+     "hot_b12": null,
+     "max_b12": 0.093
+    }
+   ]
+  },
+  {
+   "id": "K02",
+   "lat": 16.551577142857145,
+   "lon": 82.58968857142858,
+   "anchor_dates": [
+    "2025-10-11",
+    "2025-11-13",
+    "2025-11-14"
+   ],
+   "active_days": 6,
+   "n_clear_scenes": 2,
+   "evaluable": true,
+   "hit": false,
+   "scenes": [
+    {
+     "date": "2025-10-11",
+     "anchor": "2025-10-11",
+     "clear_frac": 1.0,
+     "hot_found": false,
+     "hot_dist_m": null,
+     "hot_b12": null,
+     "max_b12": 0.037
+    },
+    {
+     "date": "2025-11-15",
+     "anchor": "2025-11-13",
+     "clear_frac": 1.0,
+     "hot_found": false,
+     "hot_dist_m": null,
+     "hot_b12": null,
+     "max_b12": 0.025
+    }
+   ]
+  },
+  {
+   "id": "K03",
+   "lat": 16.55148257142857,
+   "lon": 82.59317942857143,
+   "anchor_dates": [
+    "2025-10-11",
+    "2025-10-16",
+    "2025-10-31"
+   ],
+   "active_days": 22,
+   "n_clear_scenes": 1,
+   "evaluable": false,
+   "hit": true,
+   "scenes": [
+    {
+     "date": "2025-10-11",
+     "anchor": "2025-10-11",
+     "clear_frac": 1.0,
+     "hot_found": true,
+     "hot_dist_m": 134.2,
+     "hot_b12": 0.59,
+     "max_b12": 1.504
+    }
+   ]
+  },
+  {
+   "id": "K04",
+   "lat": 16.55139342857143,
+   "lon": 82.59564914285716,
+   "anchor_dates": [
+    "2025-11-01",
+    "2025-11-07",
+    "2025-11-09"
+   ],
+   "active_days": 20,
+   "n_clear_scenes": 1,
+   "evaluable": false,
+   "hit": true,
+   "scenes": [
+    {
+     "date": "2025-11-07",
+     "anchor": "2025-11-07",
+     "clear_frac": 0.964,
+     "hot_found": true,
+     "hot_dist_m": 72.1,
+     "hot_b12": 0.635,
+     "max_b12": 1.604
+    }
+   ]
+  },
+  {
+   "id": "K05",
+   "lat": 16.553924375,
+   "lon": 82.592900625,
+   "anchor_dates": [
+    "2025-10-10",
+    "2025-10-29",
+    "2025-11-03"
+   ],
+   "active_days": 12,
+   "n_clear_scenes": 2,
+   "evaluable": true,
+   "hit": false,
+   "scenes": [
+    {
+     "date": "2025-10-11",
+     "anchor": "2025-10-10",
+     "clear_frac": 1.0,
+     "hot_found": true,
+     "hot_dist_m": 254.6,
+     "hot_b12": 0.752,
+     "max_b12": 0.752
+    },
+    {
+     "date": "2025-11-05",
+     "anchor": "2025-11-03",
+     "clear_frac": 1.0,
+     "hot_found": true,
+     "hot_dist_m": 254.6,
+     "hot_b12": 0.386,
+     "max_b12": 0.386
+    }
+   ]
+  },
+  {
+   "id": "K06",
+   "lat": 16.55386,
+   "lon": 82.59589833333334,
+   "anchor_dates": [
+    "2025-11-01",
+    "2025-11-03",
+    "2025-11-06"
+   ],
+   "active_days": 6,
+   "n_clear_scenes": 2,
+   "evaluable": true,
+   "hit": true,
+   "scenes": [
+    {
+     "date": "2025-11-05",
+     "anchor": "2025-11-03",
+     "clear_frac": 1.0,
+     "hot_found": true,
+     "hot_dist_m": 188.7,
+     "hot_b12": 0.995,
+     "max_b12": 1.545
+    },
+    {
+     "date": "2025-11-07",
+     "anchor": "2025-11-06",
+     "clear_frac": 1.0,
+     "hot_found": true,
+     "hot_dist_m": 188.7,
+     "hot_b12": 0.468,
+     "max_b12": 1.604
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "cells": 6,
+  "evaluable": 4,
+  "hits": 1
+ }
+}

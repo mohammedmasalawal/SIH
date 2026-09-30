@@ -80,6 +80,42 @@ NATIONAL_PROJECTED_CRS = "EPSG:7755"
 # This boundary is what actually restricts ingested detections to India.
 INDIA_BOUNDARY_PATH = ROOT_DIR / "data" / "external" / "boundaries" / "india_states.parquet"
 
+# --- Offshore gas flares (backend/ingestion/offshore.py, rules.apply_offshore_rules) -------
+# The India-boundary clip removes every detection at sea, including the offshore oil & gas
+# fields that flare gas continuously. Detections inside these boxes (west, south, east, north)
+# are kept when they are at least OFFSHORE_MIN_DISTANCE_KM beyond the India boundary, so
+# coastal slop in the boundary polygon never becomes an "offshore" detection. Offshore rows
+# skip every onshore rule (their OSM/GEM/landcover context describes land) and get one rule:
+# active on OFFSHORE_MIN_RECURRENCE+ days -> "gas flare" (label_source offshore_persistent) in
+# Mumbai High; anything else stays "unknown". "Active days" is the cell's distinct active days over
+# the whole offshore history, in the bulk rebuild and the live path alike. The threshold is the existing gas-flare recurrence bar,
+# fixed before validation and not tuned (tests/test_offshore.py pins it).
+OFFSHORE_ZONES = {
+    "Mumbai High": (70.5, 18.5, 72.3, 20.5),
+    "KG basin": (81.0, 14.5, 83.5, 17.5),
+}
+OFFSHORE_MIN_DISTANCE_KM = 10.0
+OFFSHORE_REGION = "offshore"  # the `region` value on offshore rows (onshore rows carry none)
+OFFSHORE_MIN_RECURRENCE = GAS_FLARE_MIN_RECURRENCE
+OFFSHORE_LABEL_SOURCE = "offshore_persistent"
+# Zones whose persistent detections are NOT labelled gas flare. KG basin: the Sentinel-2 follow-up on
+# every recurring KG cell found a hot pixel at 1 of 4 evaluable cells (the random validation draw held
+# a single KG cell), so its detections stay offshore-tagged but unknown, label_source
+# "offshore_unconfirmed". A conservative change made after seeing that follow-up, not a pre-set rule.
+OFFSHORE_UNCONFIRMED_ZONES = ("KG basin",)
+OFFSHORE_UNCONFIRMED_LABEL_SOURCE = "offshore_unconfirmed"
+# Set only after the SWIR validation (training/offshore_validation.py) met its pass rule; while
+# False, offshore rows are still ingested and shown but every one stays "unknown".
+OFFSHORE_FLARE_RULE_ADOPTED = True
+OFFSHORE_REGION_NAME = "Offshore"  # the dashboard's region-selector entry
+# Offshore rows live in their own parquets, so an onshore file is never rewritten: the
+# historical rebuild (one file, so recurrence counts active days over the whole span) and one
+# live partition per month. Same columns as CONTRACT_COLUMNS plus the three below.
+OFFSHORE_EXTRA_COLUMNS = ["region", "offshore_zone", "dist_offshore_km"]
+OFFSHORE_DIR = ROOT_DIR / "training" / "data" / "offshore"
+OFFSHORE_HISTORY_PATH = OFFSHORE_DIR / "labeled_hotspots_offshore_history.parquet"
+OFFSHORE_LIVE_PREFIX = "labeled_hotspots_offshore_live_"
+
 # --- Training artifacts ------------------------------------------------------------
 MODEL_ARTIFACT_PATH = ROOT_DIR / "training" / "artifacts" / "model_400k.pkl"
 EVAL_SUMMARY_PATH = ROOT_DIR / "training" / "artifacts" / "eval_summary.json"
